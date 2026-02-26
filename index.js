@@ -508,13 +508,19 @@ ${itemRows}
 `;
 
         // 🔥 SEND EMAIL
-        const transporter = await createTransporter();
-        await transporter.sendMail({
-            from: "yummlydelivers@gmail.com",
-            to: user.email,
-            subject: `Yummly Receipt - Order #${orderId}`,
-            html: receiptHtml,
-        });
+        // 🔥 SEND EMAIL (safe mode)
+        try {
+            const transporter = await createTransporter();
+            await transporter.sendMail({
+                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
+                to: user.email,
+                subject: `Yummly Receipt - Order #${orderId}`,
+                html: receiptHtml,
+            });
+            console.log("✅ Receipt email sent");
+        } catch (emailErr) {
+            console.error("⚠️ Email failed but order saved:", emailErr.message);
+        }
 
         res.json({
             orderId,
@@ -951,16 +957,19 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
             [status, deliveryNotes || "", orderId]
         );
 
-        // create transporter once for this request
-        const transporter = await createTransporter();
+        /* =============================
+           SAFE EMAIL SECTION
+        ============================== */
 
-        // 🔥 SEND EMAIL IF OUT FOR DELIVERY
-        if (status === "picked_up") {
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
-                to: order.email,
-                subject: `Your Order is Out for Delivery 🚚`,
-                html: `
+        try {
+            const transporter = await createTransporter();
+
+            if (status === "picked_up") {
+                await transporter.sendMail({
+                    from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
+                    to: order.email,
+                    subject: `Your Order is Out for Delivery 🚚`,
+                    html: `
 <div style="font-family: Arial; padding:20px;">
     <h2 style="color:#E53935;">Yummly Delivery Update 🚚</h2>
     <p>Hello <b>${order.name}</b>,</p>
@@ -976,48 +985,46 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
     }
 
     <p>Please keep your phone reachable.</p>
-
     <hr/>
-
     <p style="color:#666;">Thank you for choosing Yummly ❤️</p>
 </div>
 `,
-            });
-        }
+                });
+            }
 
-        // 🔥 SEND EMAIL IF DELIVERED
-        if (status === "delivered") {
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
-                to: order.email,
-                subject: `Your Order has been Delivered! ✅`,
-                html: `
+            if (status === "delivered") {
+                await transporter.sendMail({
+                    from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
+                    to: order.email,
+                    subject: `Your Order has been Delivered! ✅`,
+                    html: `
 <div style="font-family: Arial; padding:20px;">
     <h2 style="color:#4CAF50;">Yummly Order Delivered! ✅</h2>
     <p>Hello <b>${order.name}</b>,</p>
 
-    <p>Great news! Your order <strong>YM${String(orderId).padStart(
-        5,
-        "0"
-    )}</strong> 
-    has been <span style="color:#4CAF50; font-weight:bold;">
-    Successfully Delivered</span>.</p>
+    <p>Your order <strong>YM${String(orderId).padStart(5, "0")}</strong> 
+    has been successfully delivered.</p>
 
     <p><strong>Delivered At:</strong> ${new Date().toLocaleString("en-IN")}</p>
 
-    <p>We hope you enjoyed your meal! Your feedback is valuable to us.</p>
-
     <hr/>
-
     <p style="color:#666;">Thank you for choosing Yummly ❤️</p>
 </div>
 `,
-            });
+                });
+            }
+
+            console.log("✅ Delivery email sent successfully");
+        } catch (emailErr) {
+            console.error(
+                "⚠️ Delivery email failed but status updated:",
+                emailErr.message
+            );
         }
 
         res.json({ success: true });
     } catch (err) {
-        console.error(err);
+        console.error("Delivery status error:", err);
         res.status(500).json({ error: "Status update failed" });
     }
 });
