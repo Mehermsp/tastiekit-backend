@@ -297,19 +297,17 @@ app.post("/auth/forgot-password", async (req, res) => {
 //test mail
 app.get("/test-email", async (req, res) => {
     try {
-        await resend.emails.send({
-            from: "Yummly <onboarding@resend.dev>",
-            to: "THE_EMAIL_USED_TO_SIGNUP_FOR_RESEND",
-            subject: "Resend Test",
-            html: "<h2>It works 🚀</h2>",
-        });
+        await sendEmail(
+            "yummlydelivers@gmail.com",
+            "Brevo Test",
+            "<h2>Brevo is working 🚀</h2>"
+        );
 
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-
 // --- Verify OTP ---
 app.post("/auth/verify-otp", async (req, res) => {
     try {
