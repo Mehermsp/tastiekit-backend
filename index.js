@@ -24,7 +24,7 @@ let pool;
 async function initDb() {
     const config = {
         host: DB_HOST,
-        port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 3306,
+        port: process.env.DB_PORT, // 🔥 ADD THIS,
         user: DB_USER,
         password: DB_PASS,
         database: DB_NAME,
