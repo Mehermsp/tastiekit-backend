@@ -4,7 +4,6 @@ const bodyParser = require("body-parser");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
-const { google } = require("googleapis");
 
 const app = express();
 app.use(cors());
@@ -46,43 +45,14 @@ async function initDb() {
 }
 
 // Email transporter (configure with your email service)
-const OAuth2 = google.auth.OAuth2;
-
-const oauth2Client = new OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    "https://developers.google.com/oauthplayground" // redirect URL
-);
-
-oauth2Client.setCredentials({
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+// ✅ Simple Gmail App Password transporter
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
 });
-
-async function createTransporter() {
-    const accessTokenResponse = await oauth2Client.getAccessToken();
-    const accessToken =
-        (accessTokenResponse && accessTokenResponse.token) ||
-        accessTokenResponse;
-
-    if (!accessToken) {
-        throw new Error(
-            "Failed to obtain access token for Gmail API. Check GOOGLE_REFRESH_TOKEN and client credentials."
-        );
-    }
-
-    return nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-            type: "OAuth2",
-            user: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
-            accessToken: accessToken,
-        },
-    });
-}
-
 // In-memory OTP store (in production, use Redis or database)
 const otpStore = new Map();
 
@@ -147,7 +117,6 @@ app.post("/auth/send-registration-otp", async (req, res) => {
         });
 
         // Send OTP email
-        const transporter = await createTransporter();
         await transporter.sendMail({
             from: "yummlydelivers@gmail.com",
             to: emailLower,
@@ -254,9 +223,7 @@ app.post("/auth/forgot-password", async (req, res) => {
     try {
         const { email } = req.body;
 
-        if (!email) {
-            return res.status(400).json({ error: "Email is required" });
-        }
+        if (!email) return res.status(400).json({ error: "Email is required" });
 
         const emailLower = email.trim().toLowerCase();
 
@@ -265,9 +232,8 @@ app.post("/auth/forgot-password", async (req, res) => {
             [emailLower]
         );
 
-        if (rows.length === 0) {
+        if (!rows.length)
             return res.status(400).json({ error: "Account not found" });
-        }
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -276,17 +242,28 @@ app.post("/auth/forgot-password", async (req, res) => {
             expires: Date.now() + 5 * 60 * 1000,
             userId: rows[0].id,
         });
-        const transporter = await createTransporter();
-        await transporter.sendMail({
-            from: "yummlydelivers@gmail.com",
-            to: emailLower,
-            subject: "Yummly Password Reset OTP",
-            text: `Your OTP is ${otp}`,
-        });
+
+        try {
+
+            await transporter.sendMail({
+                from: process.env.EMAIL_USER,
+                to: emailLower,
+                subject: "Yummly Password Reset OTP",
+                text: `Your OTP is ${otp}`,
+            });
+
+            console.log("✅ OTP email sent successfully");
+        } catch (emailErr) {
+            console.error("❌ OTP Email Failed:", emailErr.message);
+            return res.status(500).json({
+                error: "Failed to send OTP email",
+                details: emailErr.message,
+            });
+        }
 
         res.json({ ok: true, message: "OTP sent to your email" });
     } catch (err) {
-        console.error(err);
+        console.error("Forgot password error:", err);
         res.status(500).json({ error: "Server error" });
     }
 });
@@ -510,7 +487,6 @@ ${itemRows}
         // 🔥 SEND EMAIL
         // 🔥 SEND EMAIL (safe mode)
         try {
-            const transporter = await createTransporter();
             await transporter.sendMail({
                 from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
                 to: user.email,
@@ -828,12 +804,11 @@ async function start() {
         console.log(`   Database: ${DB_NAME}`);
 
         // Warn if Gmail OAuth environment variables are missing
-        const requiredEnv = [
-            "GOOGLE_CLIENT_ID",
-            "GOOGLE_CLIENT_SECRET",
-            "GOOGLE_REFRESH_TOKEN",
-            "EMAIL_USER",
-        ];
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+            console.warn("⚠️ EMAIL_USER or EMAIL_PASS not set");
+        } else {
+            console.log("✅ Gmail App Password configured");
+        }
         const missing = requiredEnv.filter((k) => !process.env[k]);
         if (missing.length) {
             console.warn(
@@ -962,7 +937,6 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
         ============================== */
 
         try {
-            const transporter = await createTransporter();
 
             if (status === "picked_up") {
                 await transporter.sendMail({
