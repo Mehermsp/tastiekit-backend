@@ -829,6 +829,54 @@ app.put("/admin/orders/:id/status", async (req, res) => {
         res.status(500).json({ error: "Failed to update status" });
     }
 });
+// --- Admin Revenue Summary ---
+app.get("/admin/revenue-summary", isAdmin, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        let dateFilter = "";
+        const params = [];
+
+        if (startDate && endDate) {
+            dateFilter = "AND DATE(created_at) BETWEEN ? AND ?";
+            params.push(startDate, endDate);
+        }
+
+        const [orders] = await pool.query(
+            `
+            SELECT id, total, delivery_boy_id
+            FROM orders
+            WHERE status = 'delivered'
+            ${dateFilter}
+            `,
+            params
+        );
+
+        const totalRevenue = orders.reduce(
+            (sum, o) => sum + Number(o.total),
+            0
+        );
+
+        const deliveryIncomePerOrder = 40; // fixed
+        const totalDeliveryIncome =
+            orders.length * deliveryIncomePerOrder;
+
+        const preparationCost = totalRevenue * 0.6;
+
+        const profit =
+            totalRevenue - totalDeliveryIncome - preparationCost;
+
+        res.json({
+            totalRevenue,
+            totalDeliveryIncome,
+            preparationCost,
+            profit,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Revenue calculation failed" });
+    }
+});
 // --- Get user profile ---
 app.get("/user/:userId", async (req, res) => {
     const userId = parseInt(req.params.userId);
@@ -1047,6 +1095,34 @@ app.get("/admin/delivery-stats", isAdmin, async (req, res) => {
     `);
 
     res.json(stats);
+});
+// --- Delivery Boy Income ---
+app.get("/delivery/income", async (req, res) => {
+    try {
+        const userId = req.headers.userid;
+
+        const [orders] = await pool.query(
+            `
+            SELECT id, total, created_at
+            FROM orders
+            WHERE delivery_boy_id = ?
+            AND status = 'delivered'
+            `,
+            [userId]
+        );
+
+        const incomePerOrder = 40;
+
+        const totalIncome = orders.length * incomePerOrder;
+
+        res.json({
+            totalDeliveries: orders.length,
+            totalIncome,
+            orders,
+        });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch income" });
+    }
 });
 //get all delivery boys
 // --- Get All Delivery Boys ---
