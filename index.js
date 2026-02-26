@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const { google } = require("googleapis");
 
 const app = express();
 app.use(cors());
@@ -30,13 +31,42 @@ async function initDb() {
 }
 
 // Email transporter (configure with your email service)
-const transporter = nodemailer.createTransport({
-    service: "gmail", // or your email service
-    auth: {
-        user: "mspmeher@gmail.com", // replace with your email
-        pass: "iptdnhfexeaolesx", // replace with app password
-    },
+const OAuth2 = google.auth.OAuth2;
+
+const oauth2Client = new OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    "https://developers.google.com/oauthplayground" // redirect URL
+);
+
+oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
 });
+
+async function createTransporter() {
+    const accessTokenResponse = await oauth2Client.getAccessToken();
+    const accessToken =
+        (accessTokenResponse && accessTokenResponse.token) ||
+        accessTokenResponse;
+
+    if (!accessToken) {
+        throw new Error(
+            "Failed to obtain access token for Gmail API. Check GOOGLE_REFRESH_TOKEN and client credentials."
+        );
+    }
+
+    return nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+            type: "OAuth2",
+            user: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+            accessToken: accessToken,
+        },
+    });
+}
 
 // In-memory OTP store (in production, use Redis or database)
 const otpStore = new Map();
@@ -74,8 +104,9 @@ app.post("/auth/send-registration-otp", async (req, res) => {
         });
 
         // Send OTP email
+        const transporter = await createTransporter();
         await transporter.sendMail({
-            from: "mspmeher@gmail.com",
+            from: "yummlydelivers@gmail.com",
             to: emailLower,
             subject: "Yummly Registration OTP",
             text: `Your OTP for registration is ${otp}. It will expire in 5 minutes.`,
@@ -187,9 +218,9 @@ app.post("/auth/forgot-password", async (req, res) => {
             expires: Date.now() + 5 * 60 * 1000,
             userId: rows[0].id,
         });
-
+        const transporter = await createTransporter();
         await transporter.sendMail({
-            from: "mspmeher@gmail.com",
+            from: "yummlydelivers@gmail.com",
             to: emailLower,
             subject: "Yummly Password Reset OTP",
             text: `Your OTP is ${otp}`,
@@ -419,8 +450,9 @@ ${itemRows}
 `;
 
         // 🔥 SEND EMAIL
+        const transporter = await createTransporter();
         await transporter.sendMail({
-            from: "mspmeher@gmail.com",
+            from: "yummlydelivers@gmail.com",
             to: user.email,
             subject: `Yummly Receipt - Order #${orderId}`,
             html: receiptHtml,
@@ -725,6 +757,21 @@ app.post("/user/:userId/profile", async (req, res) => {
 // --- Start server ---
 async function start() {
     try {
+        // Warn if Gmail OAuth environment variables are missing
+        const requiredEnv = [
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "GOOGLE_REFRESH_TOKEN",
+            "EMAIL_USER",
+        ];
+        const missing = requiredEnv.filter((k) => !process.env[k]);
+        if (missing.length) {
+            console.warn(
+                "⚠️ Missing environment variables for Gmail OAuth:",
+                missing.join(", "),
+                "\nEmails using Gmail API will fail until these are set."
+            );
+        }
         await initDb();
         app.listen(PORT, () => console.log("✅ Server started on port", PORT));
     } catch (e) {
@@ -836,10 +883,13 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
             [status, deliveryNotes || "", orderId]
         );
 
+        // create transporter once for this request
+        const transporter = await createTransporter();
+
         // 🔥 SEND EMAIL IF OUT FOR DELIVERY
         if (status === "picked_up") {
             await transporter.sendMail({
-                from: "mspmeher@gmail.com",
+                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
                 to: order.email,
                 subject: `Your Order is Out for Delivery 🚚`,
                 html: `
@@ -870,7 +920,7 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
         // 🔥 SEND EMAIL IF DELIVERED
         if (status === "delivered") {
             await transporter.sendMail({
-                from: "mspmeher@gmail.com",
+                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
                 to: order.email,
                 subject: `Your Order has been Delivered! ✅`,
                 html: `
