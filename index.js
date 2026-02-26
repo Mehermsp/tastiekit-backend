@@ -166,36 +166,44 @@ app.post("/auth/send-registration-otp", async (req, res) => {
            emailLower,
            "Verify Your Yummly Account",
            `
-  <div style="font-family: Arial, sans-serif; background:#f6f9fc; padding:30px;">
-    <div style="max-width:500px; margin:auto; background:white; padding:30px; border-radius:12px; box-shadow:0 5px 15px rgba(0,0,0,0.05);">
+  <div style="font-family: 'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+    <div style="max-width:520px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
       
-      <h2 style="color:#E53935; text-align:center;">🍽️ Yummly</h2>
-      
-      <p style="font-size:16px;">Hi there,</p>
-      
-      <p style="font-size:15px; color:#555;">
-        Thanks for signing up! Please use the OTP below to verify your account:
-      </p>
-
-      <div style="text-align:center; margin:30px 0;">
-        <span style="display:inline-block; font-size:32px; letter-spacing:6px; 
-        font-weight:bold; color:#E53935; background:#fff3f3; padding:15px 25px; 
-        border-radius:8px;">
-          ${otp}
-        </span>
+      <div style="text-align:center;">
+        <h1 style="margin:0; color:#E53935;">🍽️ Yummly</h1>
+        <p style="color:#777; margin-top:6px;">Delicious food delivered fast</p>
       </div>
 
-      <p style="color:#777; font-size:14px;">
-        This OTP will expire in 5 minutes.
+      <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
+
+      <h2 style="color:#333;">Verify Your Account</h2>
+
+      <p style="color:#555; line-height:1.6;">
+        Welcome to Yummly! Use the OTP below to verify your account.
+      </p>
+
+      <div style="text-align:center; margin:35px 0;">
+        <div style="display:inline-block; padding:18px 35px; 
+            font-size:34px; letter-spacing:8px; 
+            font-weight:bold; 
+            color:#E53935; 
+            background:#fff3f3; 
+            border-radius:12px;">
+          ${otp}
+        </div>
+      </div>
+
+      <p style="font-size:14px; color:#777;">
+        This OTP is valid for 5 minutes.
       </p>
 
       <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
 
       <p style="font-size:13px; color:#999;">
-        If you didn’t request this, you can safely ignore this email.
+        If you did not request this, please ignore this email.
       </p>
 
-      <p style="font-size:12px; color:#bbb; text-align:center;">
+      <p style="font-size:12px; color:#bbb; text-align:center; margin-top:20px;">
         © ${new Date().getFullYear()} Yummly. All rights reserved.
       </p>
 
@@ -310,47 +318,50 @@ app.post("/auth/forgot-password", async (req, res) => {
             [emailLower, otp, "reset", users[0].id, expires]
         );
 
-        await sendEmail(
-            emailLower,
-            "Reset Your Yummly Password",
-            `
-  <div style="font-family: Arial, sans-serif; background:#f6f9fc; padding:30px;">
-    <div style="max-width:500px; margin:auto; background:white; padding:30px; border-radius:12px; box-shadow:0 5px 15px rgba(0,0,0,0.05);">
+       await sendEmail(
+           emailLower,
+           "Reset Your Yummly Password",
+           `
+  <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+    <div style="max-width:520px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
 
-      <h2 style="color:#4CAF50; text-align:center;">🔐 Password Reset</h2>
-
-      <p style="font-size:16px;">We received a request to reset your password.</p>
-
-      <p style="font-size:15px; color:#555;">
-        Use the OTP below to continue:
-      </p>
-
-      <div style="text-align:center; margin:30px 0;">
-        <span style="display:inline-block; font-size:32px; letter-spacing:6px; 
-        font-weight:bold; color:#4CAF50; background:#e8f5e9; padding:15px 25px; 
-        border-radius:8px;">
-          ${otp}
-        </span>
+      <div style="text-align:center;">
+        <h1 style="margin:0; color:#4CAF50;">🔐 Password Reset</h1>
       </div>
-
-      <p style="color:#777; font-size:14px;">
-        This OTP expires in 5 minutes.
-      </p>
 
       <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
 
-      <p style="font-size:13px; color:#999;">
-        If you didn’t request this reset, please ignore this email.
+      <p style="color:#555; line-height:1.6;">
+        We received a request to reset your Yummly password.
       </p>
 
-      <p style="font-size:12px; color:#bbb; text-align:center;">
+      <div style="text-align:center; margin:35px 0;">
+        <div style="display:inline-block; padding:18px 35px; 
+            font-size:34px; letter-spacing:8px; 
+            font-weight:bold; 
+            color:#4CAF50; 
+            background:#e8f5e9; 
+            border-radius:12px;">
+          ${otp}
+        </div>
+      </div>
+
+      <p style="font-size:14px; color:#777;">
+        This OTP will expire in 5 minutes.
+      </p>
+
+      <p style="font-size:13px; color:#999;">
+        If you didn’t request this reset, your account is still secure.
+      </p>
+
+      <p style="font-size:12px; color:#bbb; text-align:center; margin-top:20px;">
         © ${new Date().getFullYear()} Yummly
       </p>
 
     </div>
   </div>
   `
-        );
+       );
 
         res.json({ ok: true, message: "OTP sent successfully" });
     } catch (err) {
@@ -520,22 +531,25 @@ app.post("/orders", async (req, res) => {
             )
             .join("");
 
-const receiptHtml = `
-<div style="font-family: Arial, sans-serif; background:#f6f9fc; padding:30px;">
-  <div style="max-width:600px; margin:auto; background:white; padding:30px; border-radius:12px; box-shadow:0 5px 15px rgba(0,0,0,0.05);">
+        const receiptHtml = `
+<div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+  <div style="max-width:650px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
 
-    <h2 style="color:#E53935; text-align:center;">🍽️ Yummly Order Receipt</h2>
+    <div style="text-align:center;">
+      <h1 style="margin:0; color:#E53935;">🍽️ Yummly</h1>
+      <p style="color:#777;">Order Receipt</p>
+    </div>
 
-    <p><strong>Order ID:</strong> #${orderId}</p>
+    <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
+
+    <p><strong>Order ID:</strong> YM${String(orderId).padStart(5, "0")}</p>
     <p><strong>Payment Method:</strong> ${paymentMethod.toUpperCase()}</p>
     <p><strong>Total Paid:</strong> ₹${total}</p>
 
-    <hr style="margin:20px 0;" />
+    <h3 style="margin-top:25px;">🛒 Ordered Items</h3>
 
-    <h3 style="margin-bottom:10px;">🛒 Ordered Items</h3>
-
-    <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
-      <tr style="background:#f3f3f3;">
+    <table width="100%" cellpadding="10" cellspacing="0" style="border-collapse:collapse;">
+      <tr style="background:#f9f9f9;">
         <th align="left">Item</th>
         <th align="center">Qty</th>
         <th align="right">Total</th>
@@ -553,19 +567,16 @@ const receiptHtml = `
           .join("")}
     </table>
 
-    <hr style="margin:20px 0;" />
-
-    <h3>🏠 Delivery Address</h3>
+    <h3 style="margin-top:25px;">🏠 Delivery Address</h3>
     <p style="color:#555;">
-      ${doorNo}, ${street}, ${area}<br/>
+      ${doorNo}, ${street}, ${area || ""}<br/>
       ${city}, ${state} - ${zipCode}
     </p>
 
-    <hr style="margin:20px 0;" />
+    <hr style="margin:30px 0;" />
 
-    <p style="text-align:center; color:#777;">
-      Thank you for ordering with Yummly ❤️<br/>
-      Your food is being prepared!
+    <p style="text-align:center; color:#4CAF50; font-weight:600;">
+      Your food is being prepared 👨‍🍳
     </p>
 
     <p style="font-size:12px; color:#bbb; text-align:center;">
@@ -587,6 +598,63 @@ const receiptHtml = `
             console.log("✅ Receipt email sent");
         } catch (emailErr) {
             console.error("⚠️ Email failed but order saved:", emailErr.message);
+        }
+        // 🔥 SEND ADMIN NOTIFICATION
+        try {
+            const [admins] = await pool.query(
+                "SELECT email, name FROM users WHERE role = 'admin'"
+            );
+
+            const adminHtml = `
+    <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+      <div style="max-width:600px; margin:auto; background:#fff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+
+        <h2 style="color:#E53935;">🛎️ New Order Received!</h2>
+
+        <p>A new order has been placed on Yummly.</p>
+
+        <hr style="margin:20px 0;" />
+
+        <p><strong>Order ID:</strong> YM${String(orderId).padStart(5, "0")}</p>
+        <p><strong>Customer:</strong> ${user.name}</p>
+        <p><strong>Total Amount:</strong> ₹${total}</p>
+        <p><strong>Payment:</strong> ${paymentMethod.toUpperCase()}</p>
+
+        <hr style="margin:20px 0;" />
+
+        <h3>📍 Delivery Address</h3>
+        <p style="color:#555;">
+          ${doorNo}, ${street}, ${area || ""}<br/>
+          ${city}, ${state} - ${zipCode}
+        </p>
+
+        <hr style="margin:20px 0;" />
+
+        <p style="color:#FF9800; font-weight:600;">
+          Please assign a delivery partner as soon as possible.
+        </p>
+
+        <p style="font-size:12px; color:#bbb; text-align:center;">
+          © ${new Date().getFullYear()} Yummly
+        </p>
+
+      </div>
+    </div>
+    `;
+
+            await Promise.all(
+                admins.map((admin) =>
+                    sendEmail(
+                        admin.email,
+                        `🛎️ New Order - YM${String(orderId).padStart(5, "0")}`,
+                        adminHtml
+                    )
+                )
+            );
+
+            console.log("✅ Admin notification sent");
+        } catch (adminEmailErr) {
+            console.error("⚠️ Admin email failed:", adminEmailErr.message);
         }
 
         res.json({
@@ -1056,7 +1124,16 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
                 await sendEmail(
                     order.email,
                     "Your Order is Out for Delivery 🚚",
-                    `<h2>Your order is out for delivery!</h2>`
+                    `
+  <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+    <div style="max-width:520px; margin:auto; background:#fff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+      <h2 style="color:#FF9800;">🚚 Out for Delivery!</h2>
+      <p>Your Yummly order is on the way.</p>
+      <p>Please keep your phone available for delivery updates.</p>
+      <p style="color:#777;">Enjoy your meal! 😋</p>
+    </div>
+  </div>
+  `
                 );
             }
 
@@ -1064,7 +1141,16 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
                 await sendEmail(
                     order.email,
                     "Your Order has been Delivered! ✅",
-                    `<h2>Your order has been delivered!</h2>`
+                    `
+  <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
+    <div style="max-width:520px; margin:auto; background:#fff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+      <h2 style="color:#4CAF50;">✅ Delivered Successfully</h2>
+      <p>Your order has been delivered.</p>
+      <p>We hope you enjoy your meal ❤️</p>
+      <p style="color:#777;">Thank you for choosing Yummly.</p>
+    </div>
+  </div>
+  `
                 );
             }
 
