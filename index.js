@@ -76,6 +76,28 @@ const otpStore = new Map();
 // --- Health check ---
 app.get("/ping", (req, res) => res.json({ ok: true }));
 
+// --- Detailed health check (test database connection) ---
+app.get("/health", async (req, res) => {
+    try {
+        const [result] = await pool.query("SELECT 1 as alive");
+        res.json({
+            ok: true,
+            server: "running",
+            database: result[0].alive ? "connected" : "failed",
+            timestamp: new Date().toISOString(),
+        });
+    } catch (err) {
+        console.error("Health check database error:", err.message);
+        res.status(503).json({
+            ok: false,
+            server: "running",
+            database: "disconnected",
+            error: err.message,
+            timestamp: new Date().toISOString(),
+        });
+    }
+});
+
 // --- Send Registration OTP ---
 app.post("/auth/send-registration-otp", async (req, res) => {
     try {
@@ -174,22 +196,37 @@ app.post("/auth/register", async (req, res) => {
 app.post("/auth/login", async (req, res) => {
     try {
         const { email, password } = req.body;
+        console.log("🔐 Login attempt for:", email);
+
+        console.log("🔗 Executing database query...");
         const [rows] = await pool.query(
             "SELECT id,name,email,role,password FROM users WHERE LOWER(email)=LOWER(?)",
             [email]
         );
+
+        console.log("✅ Query completed, found users:", rows.length);
         const user = rows[0];
-        if (!user)
+        if (!user) {
+            console.log("❌ No user found for:", email);
             return res.status(400).json({ error: "Invalid credentials" });
+        }
 
         const ok = await bcrypt.compare(password, user.password);
-        if (!ok) return res.status(400).json({ error: "Invalid credentials" });
+        if (!ok) {
+            console.log("❌ Password mismatch for:", email);
+            return res.status(400).json({ error: "Invalid credentials" });
+        }
 
         delete user.password;
+        console.log("✅ Login successful for:", email);
         res.json({ user });
     } catch (err) {
-        console.error("Login error:", err);
-        res.status(500).json({ error: "Server error" });
+        console.error("❌ Login error:", err.message);
+        console.error("Stack:", err.stack);
+        res.status(500).json({
+            error: "Server error",
+            details: err.message,
+        });
     }
 });
 
