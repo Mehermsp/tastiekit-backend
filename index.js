@@ -46,13 +46,19 @@ async function initDb() {
 
 // Email transporter (configure with your email service)
 // ✅ Simple Gmail App Password transporter
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-});
+let transporter = null;
+try {
+    transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+        },
+    });
+    console.log("✅ Email transporter initialized");
+} catch (err) {
+    console.error("❌ Email transporter creation failed:", err.message);
+}
 // In-memory OTP store (in production, use Redis or database)
 const otpStore = new Map();
 
@@ -87,6 +93,37 @@ app.get("/health", async (req, res) => {
     }
 });
 
+// --- Diagnostics Endpoint (for debugging) ---
+app.get("/diagnostics", (req, res) => {
+    const otpInfo = [];
+    otpStore.forEach((value, email) => {
+        otpInfo.push({
+            email,
+            hasOtp: !!value.otp,
+            expiresIn: Math.max(0, value.expires - Date.now()),
+            type: value.registrationData ? "registration" : "password-reset",
+        });
+    });
+
+    res.json({
+        server: "running",
+        timestamp: new Date().toISOString(),
+        transporter: {
+            initialized: transporter ? "yes" : "no",
+            emailUser: process.env.EMAIL_USER || "not set",
+        },
+        database: {
+            host: process.env.DB_HOST || "not set",
+            port: process.env.DB_PORT || "not set",
+            ssl: process.env.DB_SSL || "false",
+        },
+        otpStore: {
+            size: otpStore.size,
+            otps: otpInfo,
+        },
+    });
+});
+
 // --- Send Registration OTP ---
 app.post("/auth/send-registration-otp", async (req, res) => {
     try {
@@ -108,6 +145,7 @@ app.post("/auth/send-registration-otp", async (req, res) => {
 
         // Generate OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log("🔐 Generated OTP:", otp, "for:", emailLower);
 
         // Store registration data with OTP
         otpStore.set(emailLower, {
@@ -115,8 +153,16 @@ app.post("/auth/send-registration-otp", async (req, res) => {
             expires: Date.now() + 5 * 60 * 1000, // 5 minutes
             registrationData: { name, email: emailLower, password },
         });
+        console.log("💾 OTP stored in memory. otpStore size:", otpStore.size);
 
         // Send OTP email
+        if (!transporter) {
+            console.error("❌ Transporter not initialized");
+            return res
+                .status(500)
+                .json({ error: "Email service not configured" });
+        }
+
         try {
             await transporter.sendMail({
                 from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
@@ -124,14 +170,13 @@ app.post("/auth/send-registration-otp", async (req, res) => {
                 subject: "Yummly Registration OTP",
                 text: `Your OTP for registration is ${otp}. It will expire in 5 minutes.`,
             });
+            console.log("✅ OTP email sent to:", emailLower);
         } catch (mailErr) {
-            console.error("Registration OTP send failure:", mailErr.message);
-            return res
-                .status(500)
-                .json({
-                    error: "Failed to send OTP",
-                    details: mailErr.message,
-                });
+            console.error("❌ Registration OTP send failure:", mailErr.message);
+            return res.status(500).json({
+                error: "Failed to send OTP",
+                details: mailErr.message,
+            });
         }
 
         res.json({ ok: true, message: "OTP sent to your email" });
@@ -232,6 +277,7 @@ app.post("/auth/login", async (req, res) => {
 app.post("/auth/forgot-password", async (req, res) => {
     try {
         const { email } = req.body;
+        console.log("📧 Forgot Password OTP request for:", email);
 
         if (!email) return res.status(400).json({ error: "Email is required" });
 
@@ -246,12 +292,29 @@ app.post("/auth/forgot-password", async (req, res) => {
             return res.status(400).json({ error: "Account not found" });
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log(
+            "🔐 Generated Forgot Password OTP:",
+            otp,
+            "for:",
+            emailLower
+        );
 
         otpStore.set(emailLower, {
             otp,
             expires: Date.now() + 5 * 60 * 1000,
             userId: rows[0].id,
         });
+        console.log(
+            "💾 Forgot Password OTP stored. otpStore size:",
+            otpStore.size
+        );
+
+        if (!transporter) {
+            console.error("❌ Transporter not initialized for forgot password");
+            return res
+                .status(500)
+                .json({ error: "Email service not configured" });
+        }
 
         try {
             await transporter.sendMail({
