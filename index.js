@@ -9,25 +9,23 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const Brevo = require("@getbrevo/brevo");
 
+// Create API instance
 const apiInstance = new Brevo.TransactionalEmailsApi();
 
-apiInstance.setApiKey(
-    Brevo.TransactionalEmailsApiApiKeys.apiKey,
-    process.env.BREVO_API_KEY
-);
+// Set API key properly (v3 method)
+apiInstance.authentications["apiKey"].apiKey = process.env.BREVO_API_KEY;
 
 async function sendEmail(to, subject, htmlContent) {
     try {
-        const sendSmtpEmail = new Brevo.SendSmtpEmail();
-
-        sendSmtpEmail.sender = {
-            name: "Yummly",
-            email: "yummlydelivers@gmail.com",
+        const sendSmtpEmail = {
+            sender: {
+                name: "Yummly",
+                email: "yummlydelivers@gmail.com",
+            },
+            to: [{ email: to }],
+            subject: subject,
+            htmlContent: htmlContent,
         };
-
-        sendSmtpEmail.to = [{ email: to }];
-        sendSmtpEmail.subject = subject;
-        sendSmtpEmail.htmlContent = htmlContent;
 
         await apiInstance.sendTransacEmail(sendSmtpEmail);
 
@@ -37,7 +35,6 @@ async function sendEmail(to, subject, htmlContent) {
         throw err;
     }
 }
-
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
