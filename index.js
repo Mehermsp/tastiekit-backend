@@ -60,7 +60,7 @@ try {
     console.error("❌ Email transporter creation failed:", err.message);
 }
 // In-memory OTP store (in production, use Redis or database)
-const otpStore = new Map();
+
 
 // --- Health check ---
 app.get("/ping", (req, res) => {
@@ -94,95 +94,72 @@ app.get("/health", async (req, res) => {
 });
 
 // --- Diagnostics Endpoint (for debugging) ---
-app.get("/diagnostics", (req, res) => {
-    const otpInfo = [];
-    otpStore.forEach((value, email) => {
-        otpInfo.push({
-            email,
-            hasOtp: !!value.otp,
-            expiresIn: Math.max(0, value.expires - Date.now()),
-            type: value.registrationData ? "registration" : "password-reset",
-        });
-    });
+app.get("/diagnostics", async (req, res) => {
+    try {
+        const [otps] = await pool.query(
+            "SELECT email, type, expires_at, reset_token FROM otp_codes ORDER BY id DESC LIMIT 10"
+        );
 
-    res.json({
-        server: "running",
-        timestamp: new Date().toISOString(),
-        transporter: {
-            initialized: transporter ? "yes" : "no",
-            emailUser: process.env.EMAIL_USER || "not set",
-        },
-        database: {
-            host: process.env.DB_HOST || "not set",
-            port: process.env.DB_PORT || "not set",
-            ssl: process.env.DB_SSL || "false",
-        },
-        otpStore: {
-            size: otpStore.size,
-            otps: otpInfo,
-        },
-    });
+        res.json({
+            server: "running",
+            timestamp: new Date().toISOString(),
+            transporter: {
+                initialized: transporter ? "yes" : "no",
+                emailUser: process.env.EMAIL_USER || "not set",
+            },
+            database: {
+                host: process.env.DB_HOST || "not set",
+                port: process.env.DB_PORT || "not set",
+                ssl: process.env.DB_SSL || "false",
+            },
+            otp_codes: {
+                count: otps.length,
+                recent: otps,
+            },
+        });
+    } catch (err) {
+        res.status(500).json({
+            error: "Diagnostics failed",
+            details: err.message,
+        });
+    }
 });
 
 // --- Send Registration OTP ---
 app.post("/auth/send-registration-otp", async (req, res) => {
     try {
         const { name, email, password } = req.body;
-        if (!name || !email || !password) {
-            return res.status(400).json({ error: "All fields are required" });
-        }
+        if (!name || !email || !password)
+            return res.status(400).json({ error: "All fields required" });
 
         const emailLower = email.trim().toLowerCase();
 
-        // Check if email already exists
-        const [rows] = await pool.query(
-            "SELECT id FROM users WHERE LOWER(email) = ?",
+        const [exists] = await pool.query(
+            "SELECT id FROM users WHERE LOWER(email)=?",
             [emailLower]
         );
-        if (rows.length) {
+        if (exists.length)
             return res.status(400).json({ error: "Email already exists" });
-        }
 
-        // Generate OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        console.log("🔐 Generated OTP:", otp, "for:", emailLower);
+        const expires = new Date(Date.now() + 5 * 60 * 1000);
 
-        // Store registration data with OTP
-        otpStore.set(emailLower, {
-            otp,
-            expires: Date.now() + 5 * 60 * 1000, // 5 minutes
-            registrationData: { name, email: emailLower, password },
+        await pool.query(
+            "INSERT INTO otp_codes (email, otp, type, expires_at) VALUES (?,?,?,?)",
+            [emailLower, otp, "registration", expires]
+        );
+
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: emailLower,
+            subject: "Yummly Registration OTP",
+            text: `Your OTP is ${otp}`,
         });
-        console.log("💾 OTP stored in memory. otpStore size:", otpStore.size);
 
-        // Send OTP email
-        if (!transporter) {
-            console.error("❌ Transporter not initialized");
-            return res
-                .status(500)
-                .json({ error: "Email service not configured" });
-        }
-
-        try {
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER || "yummlydelivers@gmail.com",
-                to: emailLower,
-                subject: "Yummly Registration OTP",
-                text: `Your OTP for registration is ${otp}. It will expire in 5 minutes.`,
-            });
-            console.log("✅ OTP email sent to:", emailLower);
-        } catch (mailErr) {
-            console.error("❌ Registration OTP send failure:", mailErr.message);
-            return res.status(500).json({
-                error: "Failed to send OTP",
-                details: mailErr.message,
-            });
-        }
-
-        res.json({ ok: true, message: "OTP sent to your email" });
+        res.json({ ok: true, message: "OTP sent" });
     } catch (err) {
-        console.error("Send registration OTP error:", err);
-        res.status(500).json({ error: "Server error" });
+        console.error(err);
+        res.status(500).json({ error: "Failed to send OTP" });
     }
 });
 
@@ -190,48 +167,36 @@ app.post("/auth/send-registration-otp", async (req, res) => {
 app.post("/auth/register", async (req, res) => {
     try {
         const { email, otp } = req.body;
-        if (!email || !otp) {
-            return res
-                .status(400)
-                .json({ error: "Email and OTP are required" });
-        }
-
         const emailLower = email.trim().toLowerCase();
-        const stored = otpStore.get(emailLower);
 
-        if (!stored || stored.otp !== otp || Date.now() > stored.expires) {
-            return res.status(400).json({ error: "Invalid or expired OTP" });
-        }
-
-        if (!stored.registrationData) {
-            return res
-                .status(400)
-                .json({ error: "No registration data found" });
-        }
-
-        const { name, password } = stored.registrationData;
-
-        // Create the user
-        const hash = await bcrypt.hash(password, 8);
-        const [resu] = await pool.query(
-            "INSERT INTO users (name,email,password,role) VALUES (?,?,?,?)",
-            [name, emailLower, hash, "user"]
+        const [rows] = await pool.query(
+            "SELECT * FROM otp_codes WHERE email=? AND otp=? AND type='registration' ORDER BY id DESC LIMIT 1",
+            [emailLower, otp]
         );
 
-        const user = {
-            id: resu.insertId,
-            name,
-            email: emailLower,
-            role: "user",
-        };
+        if (!rows.length || new Date(rows[0].expires_at) < new Date())
+            return res.status(400).json({ error: "Invalid or expired OTP" });
 
-        // Clean up OTP store
-        otpStore.delete(emailLower);
+        const hash = await bcrypt.hash(req.body.password, 8);
 
-        res.json({ user });
+        const [result] = await pool.query(
+            "INSERT INTO users (name,email,password,role) VALUES (?,?,?,?)",
+            [req.body.name, emailLower, hash, "user"]
+        );
+
+        await pool.query("DELETE FROM otp_codes WHERE email=?", [emailLower]);
+
+        res.json({
+            user: {
+                id: result.insertId,
+                name: req.body.name,
+                email: emailLower,
+                role: "user",
+            },
+        });
     } catch (err) {
-        console.error("Register error:", err);
-        res.status(500).json({ error: "Server error" });
+        console.error(err);
+        res.status(500).json({ error: "Registration failed" });
     }
 });
 
@@ -277,66 +242,34 @@ app.post("/auth/login", async (req, res) => {
 app.post("/auth/forgot-password", async (req, res) => {
     try {
         const { email } = req.body;
-        console.log("📧 Forgot Password OTP request for:", email);
-
-        if (!email) return res.status(400).json({ error: "Email is required" });
-
         const emailLower = email.trim().toLowerCase();
 
-        const [rows] = await pool.query(
-            "SELECT id, name FROM users WHERE LOWER(email) = ?",
+        const [users] = await pool.query(
+            "SELECT id FROM users WHERE LOWER(email)=?",
             [emailLower]
         );
-
-        if (!rows.length)
+        if (!users.length)
             return res.status(400).json({ error: "Account not found" });
 
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        console.log(
-            "🔐 Generated Forgot Password OTP:",
-            otp,
-            "for:",
-            emailLower
+        const expires = new Date(Date.now() + 5 * 60 * 1000);
+
+        await pool.query(
+            "INSERT INTO otp_codes (email, otp, type, user_id, expires_at) VALUES (?,?,?,?,?)",
+            [emailLower, otp, "reset", users[0].id, expires]
         );
 
-        otpStore.set(emailLower, {
-            otp,
-            expires: Date.now() + 5 * 60 * 1000,
-            userId: rows[0].id,
+        await transporter.sendMail({
+            from: process.env.EMAIL_USER,
+            to: emailLower,
+            subject: "Yummly Password Reset OTP",
+            text: `Your OTP is ${otp}`,
         });
-        console.log(
-            "💾 Forgot Password OTP stored. otpStore size:",
-            otpStore.size
-        );
 
-        if (!transporter) {
-            console.error("❌ Transporter not initialized for forgot password");
-            return res
-                .status(500)
-                .json({ error: "Email service not configured" });
-        }
-
-        try {
-            await transporter.sendMail({
-                from: process.env.EMAIL_USER,
-                to: emailLower,
-                subject: "Yummly Password Reset OTP",
-                text: `Your OTP is ${otp}`,
-            });
-
-            console.log("✅ OTP email sent successfully");
-        } catch (emailErr) {
-            console.error("❌ OTP Email Failed:", emailErr.message);
-            return res.status(500).json({
-                error: "Failed to send OTP email",
-                details: emailErr.message,
-            });
-        }
-
-        res.json({ ok: true, message: "OTP sent to your email" });
+        res.json({ ok: true, message: "OTP sent" });
     } catch (err) {
-        console.error("Forgot password error:", err);
-        res.status(500).json({ error: "Server error" });
+        console.error(err);
+        res.status(500).json({ error: "Failed to send OTP" });
     }
 });
 
@@ -344,29 +277,28 @@ app.post("/auth/forgot-password", async (req, res) => {
 app.post("/auth/verify-otp", async (req, res) => {
     try {
         const { email, otp } = req.body;
-        if (!email || !otp) {
-            return res
-                .status(400)
-                .json({ error: "Email and OTP are required" });
-        }
-
         const emailLower = email.trim().toLowerCase();
-        const stored = otpStore.get(emailLower);
-        if (!stored || stored.otp !== otp || Date.now() > stored.expires) {
+
+        const [rows] = await pool.query(
+            "SELECT * FROM otp_codes WHERE email=? AND otp=? AND type='reset' ORDER BY id DESC LIMIT 1",
+            [emailLower, otp]
+        );
+
+        if (!rows.length || new Date(rows[0].expires_at) < new Date())
             return res.status(400).json({ error: "Invalid or expired OTP" });
-        }
 
-        // OTP verified, generate a reset token (simple approach)
         const resetToken = Math.random().toString(36).substring(2);
-        stored.resetToken = resetToken;
-        stored.resetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes for reset
+        const resetExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-        otpStore.set(emailLower, stored);
+        await pool.query(
+            "UPDATE otp_codes SET reset_token=?, reset_expires=? WHERE id=?",
+            [resetToken, resetExpires, rows[0].id]
+        );
 
         res.json({ ok: true, resetToken });
     } catch (err) {
-        console.error("Verify OTP error:", err);
-        res.status(500).json({ error: "Server error" });
+        console.error(err);
+        res.status(500).json({ error: "OTP verification failed" });
     }
 });
 
@@ -374,37 +306,29 @@ app.post("/auth/verify-otp", async (req, res) => {
 app.post("/auth/reset-password", async (req, res) => {
     try {
         const { email, resetToken, newPassword } = req.body;
-        if (!email || !resetToken || !newPassword) {
-            return res.status(400).json({ error: "All fields are required" });
-        }
-
         const emailLower = email.trim().toLowerCase();
-        const stored = otpStore.get(emailLower);
-        if (
-            !stored ||
-            stored.resetToken !== resetToken ||
-            Date.now() > stored.resetExpires
-        ) {
-            return res
-                .status(400)
-                .json({ error: "Invalid or expired reset token" });
-        }
 
-        // Hash new password
+        const [rows] = await pool.query(
+            "SELECT * FROM otp_codes WHERE email=? AND reset_token=? ORDER BY id DESC LIMIT 1",
+            [emailLower, resetToken]
+        );
+
+        if (!rows.length || new Date(rows[0].reset_expires) < new Date())
+            return res.status(400).json({ error: "Invalid or expired token" });
+
         const hash = await bcrypt.hash(newPassword, 8);
 
-        // Update password
-        await pool.query("UPDATE users SET password = ? WHERE id = ?", [
+        await pool.query("UPDATE users SET password=? WHERE id=?", [
             hash,
-            stored.userId,
+            rows[0].user_id,
         ]);
 
-        // Clear OTP store
-        otpStore.delete(emailLower);
+        await pool.query("DELETE FROM otp_codes WHERE email=?", [emailLower]);
+
         res.json({ ok: true, message: "Password reset successfully" });
     } catch (err) {
-        console.error("Reset password error:", err);
-        res.status(500).json({ error: "Failed to reset password" });
+        console.error(err);
+        res.status(500).json({ error: "Reset failed" });
     }
 });
 
@@ -875,7 +799,7 @@ async function start() {
         console.log(`   User: ${DB_USER}`);
         console.log(`   Database: ${DB_NAME}`);
 
-        // Warn if Gmail OAuth environment variables are missing
+        // Warn if Gmail environment variables are missing
         if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
             console.warn("⚠️ EMAIL_USER or EMAIL_PASS not set");
         } else {
