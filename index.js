@@ -7,8 +7,33 @@ const path = require("path");
 
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
+const Brevo = require("@getbrevo/brevo");
+
+const brevoClient = new Brevo.TransactionalEmailsApi();
+
+brevoClient.setApiKey(
+    Brevo.TransactionalEmailsApiApiKeys.apiKey,
+    process.env.BREVO_API_KEY
+);
+
+async function sendEmail(to, subject, htmlContent) {
+    try {
+        await brevoClient.sendTransacEmail({
+            sender: {
+                name: "Yummly",
+                email: "yummlydelivers@gmail.com", // MUST be verified in Brevo
+            },
+            to: [{ email: to }],
+            subject: subject,
+            htmlContent: htmlContent,
+        });
+
+        console.log("✅ Email sent to:", to);
+    } catch (err) {
+        console.error("❌ Brevo error:", err.response?.body || err.message);
+        throw err;
+    }
+}
 
 const app = express();
 app.use(cors());
@@ -46,7 +71,6 @@ async function initDb() {
 }
 
 // Email transporter (configure with your email service)
-// ✅ Simple Gmail App Password transporter
 
 // In-memory OTP store (in production, use Redis or database)
 
@@ -91,8 +115,8 @@ app.get("/diagnostics", async (req, res) => {
         res.json({
             server: "running",
             timestamp: new Date().toISOString(),
-            emailService: "Resend",
-            resendKey: process.env.RESEND_API_KEY ? "configured" : "missing",
+            emailService: "Brevo",
+            brevoKey: process.env.BREVO_API_KEY ? "configured" : "missing",
             database: {
                 host: process.env.DB_HOST || "not set",
                 port: process.env.DB_PORT || "not set",
@@ -136,17 +160,16 @@ app.post("/auth/send-registration-otp", async (req, res) => {
             [emailLower, otp, "registration", expires]
         );
 
-        await resend.emails.send({
-            from: "Yummly <onboarding@resend.dev>",
-            to: emailLower,
-            subject: "Yummly Registration OTP",
-            html: `
-                <h2>Welcome to Yummly 🍽️</h2>
-                <p>Your registration OTP is:</p>
-                <h1>${otp}</h1>
-                <p>This OTP expires in 5 minutes.</p>
-            `,
-        });
+        await sendEmail(
+            emailLower,
+            "Yummly Registration OTP",
+            `
+    <h2>Welcome to Yummly 🍽️</h2>
+    <p>Your registration OTP is:</p>
+    <h1>${otp}</h1>
+    <p>This OTP expires in 5 minutes.</p>
+  `
+        );
 
         res.json({ ok: true, message: "OTP sent successfully" });
     } catch (err) {
@@ -254,17 +277,16 @@ app.post("/auth/forgot-password", async (req, res) => {
             [emailLower, otp, "reset", users[0].id, expires]
         );
 
-        await resend.emails.send({
-            from: "Yummly <onboarding@resend.dev>",
-            to: emailLower,
-            subject: "Yummly Password Reset OTP",
-            html: `
-                <h2>Password Reset 🔐</h2>
-                <p>Your OTP is:</p>
-                <h1>${otp}</h1>
-                <p>This OTP expires in 5 minutes.</p>
-            `,
-        });
+        await sendEmail(
+            emailLower,
+            "Yummly Password Reset OTP",
+            `
+    <h2>Password Reset 🔐</h2>
+    <p>Your OTP is:</p>
+    <h1>${otp}</h1>
+    <p>This OTP expires in 5 minutes.</p>
+  `
+        );
 
         res.json({ ok: true, message: "OTP sent successfully" });
     } catch (err) {
@@ -277,7 +299,7 @@ app.get("/test-email", async (req, res) => {
     try {
         await resend.emails.send({
             from: "Yummly <onboarding@resend.dev>",
-            to: "yummlydelivers@gmail.com",
+            to: "THE_EMAIL_USED_TO_SIGNUP_FOR_RESEND",
             subject: "Resend Test",
             html: "<h2>It works 🚀</h2>",
         });
@@ -498,12 +520,11 @@ ${itemRows}
         // 🔥 SEND EMAIL
         // 🔥 SEND EMAIL (safe mode)
         try {
-            await resend.emails.send({
-                from: "Yummly <onboarding@resend.dev>",
-                to: user.email,
-                subject: `Yummly Receipt - Order #${orderId}`,
-                html: receiptHtml,
-            });
+            await sendEmail(
+                user.email,
+                `Yummly Receipt - Order #${orderId}`,
+                receiptHtml
+            );
             console.log("✅ Receipt email sent");
         } catch (emailErr) {
             console.error("⚠️ Email failed but order saved:", emailErr.message);
@@ -925,53 +946,19 @@ app.put("/delivery/orders/:id/status", async (req, res) => {
 
         try {
             if (status === "picked_up") {
-                await resend.emails.send({
-                    from: "Yummly <onboarding@resend.dev>",
-                    to: order.email,
-                    subject: `Your Order is Out for Delivery 🚚`,
-                    html: `
-<div style="font-family: Arial; padding:20px;">
-    <h2 style="color:#E53935;">Yummly Delivery Update 🚚</h2>
-    <p>Hello <b>${order.name}</b>,</p>
-
-    <p>Your order <strong>YM${String(orderId).padStart(5, "0")}</strong> 
-    is now <span style="color:#4CAF50; font-weight:bold;">
-    Out for Delivery</span>.</p>
-
-    ${
-        estimatedDeliveryTime
-            ? `<p><strong>Estimated Delivery Time:</strong> ${estimatedDeliveryTime}</p>`
-            : ""
-    }
-
-    <p>Please keep your phone reachable.</p>
-    <hr/>
-    <p style="color:#666;">Thank you for choosing Yummly ❤️</p>
-</div>
-`,
-                });
+                await sendEmail(
+                    order.email,
+                    "Your Order is Out for Delivery 🚚",
+                    `<h2>Your order is out for delivery!</h2>`
+                );
             }
 
             if (status === "delivered") {
-                await resend.emails.send({
-                    from: "Yummly <onboarding@resend.dev>",
-                    to: order.email,
-                    subject: `Your Order has been Delivered! ✅`,
-                    html: `
-<div style="font-family: Arial; padding:20px;">
-    <h2 style="color:#4CAF50;">Yummly Order Delivered! ✅</h2>
-    <p>Hello <b>${order.name}</b>,</p>
-
-    <p>Your order <strong>YM${String(orderId).padStart(5, "0")}</strong> 
-    has been successfully delivered.</p>
-
-    <p><strong>Delivered At:</strong> ${new Date().toLocaleString("en-IN")}</p>
-
-    <hr/>
-    <p style="color:#666;">Thank you for choosing Yummly ❤️</p>
-</div>
-`,
-                });
+                await sendEmail(
+                    order.email,
+                    "Your Order has been Delivered! ✅",
+                    `<h2>Your order has been delivered!</h2>`
+                );
             }
 
             console.log("✅ Delivery email sent successfully");
