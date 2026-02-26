@@ -158,8 +158,9 @@ app.post("/auth/send-registration-otp", async (req, res) => {
         const expires = new Date(Date.now() + 5 * 60 * 1000);
 
         await pool.query(
-            "INSERT INTO otp_codes (email, otp, type, expires_at) VALUES (?,?,?,?)",
-            [emailLower, otp, "registration", expires]
+            `INSERT INTO otp_codes (email, otp, type, expires_at, temp_name, temp_password)
+   VALUES (?,?,?,?,?,?)`,
+            [emailLower, otp, "registration", expires, name, password]
         );
 
        await sendEmail(
@@ -226,18 +227,24 @@ app.post("/auth/register", async (req, res) => {
         const emailLower = email.trim().toLowerCase();
 
         const [rows] = await pool.query(
-            "SELECT * FROM otp_codes WHERE email=? AND otp=? AND type='registration' ORDER BY id DESC LIMIT 1",
+            `SELECT * FROM otp_codes 
+             WHERE email=? AND otp=? AND type='registration' 
+             ORDER BY id DESC LIMIT 1`,
             [emailLower, otp]
         );
 
-        if (!rows.length || new Date(rows[0].expires_at) < new Date())
+        if (!rows.length || new Date(rows[0].expires_at) < new Date()) {
             return res.status(400).json({ error: "Invalid or expired OTP" });
+        }
 
-        const hash = await bcrypt.hash(req.body.password, 8);
+        const tempName = rows[0].temp_name;
+        const tempPassword = rows[0].temp_password;
+
+        const hash = await bcrypt.hash(tempPassword, 8);
 
         const [result] = await pool.query(
             "INSERT INTO users (name,email,password,role) VALUES (?,?,?,?)",
-            [req.body.name, emailLower, hash, "user"]
+            [tempName, emailLower, hash, "user"]
         );
 
         await pool.query("DELETE FROM otp_codes WHERE email=?", [emailLower]);
@@ -245,13 +252,13 @@ app.post("/auth/register", async (req, res) => {
         res.json({
             user: {
                 id: result.insertId,
-                name: req.body.name,
+                name: tempName,
                 email: emailLower,
                 role: "user",
             },
         });
     } catch (err) {
-        console.error(err);
+        console.error("Registration error:", err);
         res.status(500).json({ error: "Registration failed" });
     }
 });
