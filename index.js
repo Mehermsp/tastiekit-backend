@@ -22,14 +22,25 @@ const PORT = process.env.PORT || 8000;
 
 let pool;
 async function initDb() {
-    pool = await mysql.createPool({
+    const config = {
         host: DB_HOST,
         user: DB_USER,
         password: DB_PASS,
         database: DB_NAME,
         waitForConnections: true,
         connectionLimit: 10,
-    });
+    };
+
+    // enable SSL for Aiven/MySQL if required (Render -> Aiven over public Internet)
+    if (process.env.DB_SSL === "true") {
+        config.ssl = {
+            // rejectUnauthorized can be toggled by env for testing
+            rejectUnauthorized: process.env.DB_SSL_REJECT !== "false",
+        };
+        console.log("🔐 SSL enabled for DB connection");
+    }
+
+    pool = await mysql.createPool(config);
 }
 
 // Email transporter (configure with your email service)
