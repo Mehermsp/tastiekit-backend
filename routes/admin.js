@@ -8,12 +8,12 @@ function registerAdminRoutes(
 
             let query = `
             SELECT o.*, u.name, u.email,
-                   db.name as delivery_boy_name,
-                   db.phone as delivery_boy_phone,
-                   db.email as delivery_boy_email
+                   db.name as delivery_partner_name,
+                   db.phone as delivery_partner_phone,
+                   db.email as delivery_partner_email
             FROM orders o
             JOIN users u ON o.user_id = u.id
-            LEFT JOIN users db ON o.delivery_boy_id = db.id
+            LEFT JOIN users db ON o.delivery_partner_id = db.id
         `;
 
             const params = [];
@@ -34,7 +34,7 @@ function registerAdminRoutes(
             const orderIds = orders.map((order) => order.id);
             const [items] = await getPool().query(
                 `
-            SELECT order_id, menu_id as id, name, price, qty
+            SELECT order_id, menu_item_id as id, name, price, qty
             FROM order_items
             WHERE order_id IN (?)
             ORDER BY order_id DESC, id ASC
@@ -113,7 +113,7 @@ function registerAdminRoutes(
 
             const [orders] = await getPool().query(
                 `
-            SELECT id, total, delivery_boy_id
+            SELECT id, total, delivery_partner_id
             FROM orders
             WHERE status = 'delivered'
             ${dateFilter}
@@ -191,7 +191,7 @@ function registerAdminRoutes(
             await getPool().query(
                 `
             UPDATE orders 
-            SET delivery_boy_id = ?, 
+            SET delivery_partner_id = ?, 
                 status = 'accepted' 
             WHERE id = ?
             `,
@@ -239,7 +239,7 @@ function registerAdminRoutes(
         SUM(CASE WHEN o.status IN ('accepted','preparing','picked_up') THEN 1 ELSE 0 END) AS active_orders,
         SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) AS completed_orders
         FROM users u
-        LEFT JOIN orders o ON u.id = o.delivery_boy_id
+        LEFT JOIN orders o ON u.id = o.delivery_partner_id
         WHERE u.role = 'delivery'
         GROUP BY u.id
     `);
@@ -260,7 +260,7 @@ function registerAdminRoutes(
                 COUNT(CASE WHEN o.status IN ('accepted','preparing','picked_up') THEN 1 END) AS active_orders,
                 COUNT(CASE WHEN o.status = 'delivered' THEN 1 END) AS completed_orders
             FROM users u
-            LEFT JOIN orders o ON u.id = o.delivery_boy_id
+            LEFT JOIN orders o ON u.id = o.delivery_partner_id
             WHERE LOWER(TRIM(u.role)) = 'delivery'
             GROUP BY u.id
         `);

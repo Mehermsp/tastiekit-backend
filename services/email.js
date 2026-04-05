@@ -6,8 +6,8 @@ async function sendEmail(to, subject, htmlContent) {
             "https://api.brevo.com/v3/smtp/email",
             {
                 sender: {
-                    name: "Yummly",
-                    email: "yummlydelivers@gmail.com",
+                    name: "tastiekit",
+                    email: "tastiekit@gmail.com",
                 },
                 to: [{ email: to }],
                 subject: subject,
