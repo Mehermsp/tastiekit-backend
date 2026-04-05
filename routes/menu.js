@@ -1,24 +1,29 @@
 function registerMenuRoutes(app, { getPool, ensureMealTypeColumn }) {
     app.get("/menu", async (req, res) => {
         try {
-            const [rows] = await getPool().query(
-                `SELECT mi.id, mi.name, mi.description, mi.price, mi.image, mi.category, 
-                        mi.meal_type, mi.season, mi.rating, mi.discount, mi.popularity,
-                        mi.restaurant_id, r.name as restaurant_name,
-                        mi.available, mi.food_type
-                 FROM menu_items mi
-                 LEFT JOIN restaurants r ON mi.restaurant_id = r.id
-                 WHERE mi.available = 1 AND r.status = 'approved'
-                 ORDER BY mi.popularity DESC`
-            );
+            console.log("Fetching menu from menu_items table...");
+            const [rows] = await getPool().query("SELECT * FROM menu_items ORDER BY popularity DESC LIMIT 100");
+            console.log("Menu query returned:", rows.length, "items");
             res.json(rows);
         } catch (err) {
             console.error("Menu fetch error:", err);
-            res.status(500).json({ error: "Failed to fetch menu" });
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.get("/menu/debug", async (req, res) => {
+        try {
+            const [allItems] = await getPool().query("SELECT * FROM menu_items ORDER BY id DESC LIMIT 50");
+            const [restaurants] = await getPool().query("SELECT id, name, status FROM restaurants");
+            res.json({
+                totalItems: allItems.length,
+                items: allItems,
+                restaurants: restaurants
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
         }
     });
 }
-
-module.exports = registerMenuRoutes;
 
 module.exports = registerMenuRoutes;
