@@ -28,13 +28,13 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
 
             await sendEmail(
                 emailLower,
-                "Verify Your Yummly Account",
+                "Verify Your TastieKit Account",
                 `
   <div style="font-family: 'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
     <div style="max-width:520px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
       
       <div style="text-align:center;">
-        <h1 style="margin:0; color:#E53935;">Yummly</h1>
+        <h1 style="margin:0; color:#E53935;">tastiekit</h1>
         <p style="color:#777; margin-top:6px;">Delicious food delivered fast</p>
       </div>
 
@@ -43,7 +43,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
       <h2 style="color:#333;">Verify Your Account</h2>
 
       <p style="color:#555; line-height:1.6;">
-        Welcome to Yummly! Use the OTP below to verify your account.
+        Welcome to TastieKit! Use the OTP below to verify your account.
       </p>
 
       <div style="text-align:center; margin:35px 0;">
@@ -68,7 +68,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
       </p>
 
       <p style="font-size:12px; color:#bbb; text-align:center; margin-top:20px;">
-        Copyright ${new Date().getFullYear()} Yummly. All rights reserved.
+        Copyright ${new Date().getFullYear()} tastiekit. All rights reserved.
       </p>
 
     </div>
@@ -96,9 +96,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
             );
 
             if (!rows.length || new Date(rows[0].expires_at) < new Date()) {
-                return res
-                    .status(400)
-                    .json({ error: "Invalid or expired OTP" });
+                return res.status(400).json({ error: "Invalid or expired OTP" });
             }
 
             const tempName = rows[0].temp_name;
@@ -108,19 +106,17 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
 
             const [result] = await getPool().query(
                 "INSERT INTO users (name,email,password,role) VALUES (?,?,?,?)",
-                [tempName, emailLower, hash, "user"]
+                [tempName, emailLower, hash, "customer"]
             );
 
-            await getPool().query("DELETE FROM otp_codes WHERE email=?", [
-                emailLower,
-            ]);
+            await getPool().query("DELETE FROM otp_codes WHERE email=?", [emailLower]);
 
             res.json({
                 user: {
                     id: result.insertId,
                     name: tempName,
                     email: emailLower,
-                    role: "user",
+                    role: "customer",
                 },
             });
         } catch (err) {
@@ -136,7 +132,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
 
             console.log("Executing database query...");
             const [rows] = await getPool().query(
-                "SELECT id,name,email,phone,role,password FROM users WHERE LOWER(email)=LOWER(?)",
+                "SELECT id,name,email,role,password FROM users WHERE LOWER(email)=LOWER(?)",
                 [email]
             );
 
@@ -169,8 +165,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
     app.post("/auth/forgot-password", async (req, res) => {
         try {
             const { email } = req.body;
-            if (!email)
-                return res.status(400).json({ error: "Email required" });
+            if (!email) return res.status(400).json({ error: "Email required" });
 
             const emailLower = email.trim().toLowerCase();
 
@@ -192,7 +187,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
 
             await sendEmail(
                 emailLower,
-                "Reset Your Yummly Password",
+                "Reset Your TastieKit Password",
                 `
   <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
     <div style="max-width:520px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
@@ -204,7 +199,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
       <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
 
       <p style="color:#555; line-height:1.6;">
-        We received a request to reset your Yummly password.
+        We received a request to reset your tastiekit password.
       </p>
 
       <div style="text-align:center; margin:35px 0;">
@@ -227,7 +222,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
       </p>
 
       <p style="font-size:12px; color:#bbb; text-align:center; margin-top:20px;">
-        Copyright ${new Date().getFullYear()} Yummly
+        Copyright ${new Date().getFullYear()} tastiekit
       </p>
 
     </div>
@@ -245,7 +240,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
     app.get("/test-email", async (req, res) => {
         try {
             await sendEmail(
-                "yummlydelivers@gmail.com",
+                "tastiekit@gmail.com",
                 "Brevo Test",
                 "<h2>Brevo is working</h2>"
             );
@@ -267,9 +262,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
             );
 
             if (!rows.length || new Date(rows[0].expires_at) < new Date())
-                return res
-                    .status(400)
-                    .json({ error: "Invalid or expired OTP" });
+                return res.status(400).json({ error: "Invalid or expired OTP" });
 
             const resetToken = Math.random().toString(36).substring(2);
             const resetExpires = new Date(Date.now() + 10 * 60 * 1000);
@@ -297,9 +290,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
             );
 
             if (!rows.length || new Date(rows[0].reset_expires) < new Date())
-                return res
-                    .status(400)
-                    .json({ error: "Invalid or expired token" });
+                return res.status(400).json({ error: "Invalid or expired token" });
 
             const hash = await bcrypt.hash(newPassword, 8);
 
@@ -308,9 +299,7 @@ function registerAuthRoutes(app, { getPool, sendEmail }) {
                 rows[0].user_id,
             ]);
 
-            await getPool().query("DELETE FROM otp_codes WHERE email=?", [
-                emailLower,
-            ]);
+            await getPool().query("DELETE FROM otp_codes WHERE email=?", [emailLower]);
 
             res.json({ ok: true, message: "Password reset successfully" });
         } catch (err) {

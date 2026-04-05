@@ -33,9 +33,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             const user = userRows[0];
             if (!doorNo || !street || !city || !zipCode || !phone) {
-                return res
-                    .status(400)
-                    .json({ error: "Complete address required" });
+                return res.status(400).json({ error: "Complete address required" });
             }
 
             const [r] = await getPool().query(
@@ -63,7 +61,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             for (const it of items) {
                 await getPool().query(
-                    "INSERT INTO order_items (order_id, menu_id, name, price, qty) VALUES (?,?,?,?,?)",
+                    "INSERT INTO order_items (order_id, menu_item_id, name, price, qty) VALUES (?,?,?,?,?)",
                     [orderId, it.id, it.name, it.price, it.qty]
                 );
             }
@@ -132,10 +130,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 );
                 console.log("Receipt email sent");
             } catch (emailErr) {
-                console.error(
-                    "Email failed but order saved:",
-                    emailErr.message
-                );
+                console.error("Email failed but order saved:", emailErr.message);
             }
 
             try {
@@ -215,12 +210,12 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             SELECT o.id, o.user_id as userId, o.total, o.status, o.created_at, o.delivered_at,
                    o.door_no, o.street, o.area, o.city, o.state, o.zip_code,
                    o.phone, o.notes,
-                   db.id as delivery_boy_id,
+                   db.id as delivery_partner_id,
                    db.name as delivery_boy_name,
                    db.phone as delivery_boy_phone,
                    db.email as delivery_boy_email
             FROM orders o
-            LEFT JOIN users db ON o.delivery_boy_id = db.id
+            LEFT JOIN users db ON o.delivery_partner_id = db.id
             WHERE o.id = ?
             `,
                 [id]
@@ -241,23 +236,17 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 [requesterId]
             );
 
-            const isAdmin =
-                requesterRows.length && requesterRows[0].role === "admin";
+            const isAdmin = requesterRows.length && requesterRows[0].role === "admin";
             const isAssignedDelivery =
-                order.delivery_boy_id &&
-                Number(order.delivery_boy_id) === requesterId;
+                order.delivery_partner_id && Number(order.delivery_partner_id) === requesterId;
 
-            if (
-                !isAdmin &&
-                order.userId !== requesterId &&
-                !isAssignedDelivery
-            ) {
+            if (!isAdmin && order.userId !== requesterId && !isAssignedDelivery) {
                 return res.status(403).json({ error: "Forbidden" });
             }
 
             const [items] = await getPool().query(
                 `
-            SELECT menu_id as id, name, price, qty
+            SELECT menu_item_id as id, name, price, qty
             FROM order_items
             WHERE order_id = ?
             `,
@@ -284,12 +273,12 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             let query = `
             SELECT o.id, o.total, o.status, o.created_at, o.delivered_at,
-                   o.delivery_boy_id,
+                   o.delivery_partner_id,
                    db.name as delivery_boy_name,
                    db.phone as delivery_boy_phone,
                    db.email as delivery_boy_email
             FROM orders o
-            LEFT JOIN users db ON o.delivery_boy_id = db.id
+            LEFT JOIN users db ON o.delivery_partner_id = db.id
             WHERE o.user_id = ?
         `;
 

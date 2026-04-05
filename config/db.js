@@ -3,7 +3,6 @@ const mysql = require("mysql2/promise");
 let pool;
 let availabilityColumnReady = false;
 let mealTypeColumnReady = false;
-let addressesColumnReady = false;
 
 async function ensureAvailabilityColumn() {
     if (availabilityColumnReady) {
@@ -72,32 +71,6 @@ async function ensureMealTypeColumn() {
     mealTypeColumnReady = true;
 }
 
-async function ensureAddressesColumn() {
-    if (addressesColumnReady) {
-        return;
-    }
-
-    const [addressesColumn] = await pool.query(
-        `
-        SELECT COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = 'users'
-        AND COLUMN_NAME = 'addresses'
-    `,
-        [process.env.DB_NAME]
-    );
-
-    if (!addressesColumn.length) {
-        await pool.query(
-            "ALTER TABLE users ADD COLUMN addresses JSON DEFAULT ('[]')"
-        );
-        console.log("Added users.addresses column");
-    }
-
-    addressesColumnReady = true;
-}
-
 async function initDb() {
     const config = {
         host: process.env.DB_HOST,
@@ -122,7 +95,7 @@ async function initDb() {
         CREATE TABLE IF NOT EXISTS wishlists (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
-            menu_id INT,
+            menu_item_id INT,
             name VARCHAR(255),
             price DECIMAL(10,2),
             image VARCHAR(1024),
@@ -131,13 +104,12 @@ async function initDb() {
             discount INT DEFAULT 0,
             KEY idx_user_id (user_id),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE SET NULL
+            FOREIGN KEY (menu_item_id) REFERENCES menu_items(id) ON DELETE SET NULL
         )
     `);
 
     await ensureAvailabilityColumn();
     await ensureMealTypeColumn();
-    await ensureAddressesColumn();
 }
 
 function getPool() {
@@ -149,5 +121,4 @@ module.exports = {
     getPool,
     ensureAvailabilityColumn,
     ensureMealTypeColumn,
-    ensureAddressesColumn,
 };

@@ -10,7 +10,6 @@ const {
     getPool,
     ensureAvailabilityColumn,
     ensureMealTypeColumn,
-    ensureAddressesColumn,
 } = require("./config/db");
 const { sendEmail, formatDeliveryPartnerHtml } = require("./services/email");
 const createIsAdmin = require("./middleware/isAdmin");
@@ -37,7 +36,6 @@ const deps = {
     getPool,
     ensureAvailabilityColumn,
     ensureMealTypeColumn,
-    ensureAddressesColumn,
     sendEmail,
     formatDeliveryPartnerHtml,
     isAdmin,

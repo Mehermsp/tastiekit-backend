@@ -5,7 +5,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
         const [orders] = await getPool().query(
             `
         SELECT * FROM orders
-        WHERE delivery_boy_id = ?
+        WHERE delivery_partner_id = ?
         ORDER BY created_at DESC
     `,
             [userId]
@@ -13,7 +13,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
 
         for (const order of orders) {
             const [items] = await getPool().query(
-                "SELECT menu_id as id, name, price, qty FROM order_items WHERE order_id = ?",
+                "SELECT menu_item_id as id, name, price, qty FROM order_items WHERE order_id = ?",
                 [order.id]
             );
             order.items = items;
@@ -79,7 +79,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
 
             const [rows] = await getPool().query(
                 `
-            SELECT o.delivery_boy_id, o.status, 
+            SELECT o.delivery_partner_id, o.status, 
                    u.email, u.name
             FROM orders o
             JOIN users u ON o.user_id = u.id
@@ -93,7 +93,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
 
             const order = rows[0];
 
-            if (order.delivery_boy_id != userId) {
+            if (order.delivery_partner_id != userId) {
                 return res.status(403).json({
                     error: "Not authorized for this order",
                 });
@@ -170,7 +170,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
                 `
             SELECT id, total, created_at
             FROM orders
-            WHERE delivery_boy_id = ?
+            WHERE delivery_partner_id = ?
             AND status = 'delivered'
             `,
                 [userId]
