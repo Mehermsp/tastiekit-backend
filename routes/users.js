@@ -11,7 +11,12 @@ function registerUserRoutes(app, { getPool, requireSelfOrAdmin }) {
 
         // Parse JSON safely
         const user = rows[0];
-        user.addresses = user.addresses ? JSON.parse(user.addresses) : [];
+        try {
+            user.addresses = user.addresses ? JSON.parse(user.addresses) : [];
+        } catch (e) {
+            console.error("Failed to parse addresses:", e);
+            user.addresses = [];
+        }
 
         res.json({ user });
     });
