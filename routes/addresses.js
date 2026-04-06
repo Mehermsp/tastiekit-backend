@@ -44,39 +44,6 @@ function registerAddressRoutes(app, { getPool }) {
             res.status(500).json({ error: err.message });
         }
     });
-            res.json(rows);
-        } catch (err) {
-            console.error("Get addresses error:", err);
-            res.status(500).json({ error: "Failed to fetch addresses" });
-        }
-    });
-
-    // Save a new address
-    app.post("/addresses", async (req, res) => {
-        try {
-            const { userId, label, door_no, street, area, city, state, pincode, landmark, latitude, longitude, is_default } = req.body;
-
-            if (!userId || !door_no || !city || !state || !pincode) {
-                return res.status(400).json({ error: "Required fields missing" });
-            }
-
-            // If this is default, unset other defaults
-            if (is_default) {
-                await getPool().query("UPDATE addresses SET is_default = 0 WHERE user_id = ?", [userId]);
-            }
-
-            const [result] = await getPool().query(
-                `INSERT INTO addresses (user_id, label, door_no, street, area, city, state, pincode, landmark, latitude, longitude, is_default)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-                [userId, label || 'Home', door_no, street, area, city, state, pincode, landmark, latitude, longitude, is_default ? 1 : 0]
-            );
-
-            res.json({ id: result.insertId, success: true });
-        } catch (err) {
-            console.error("Save address error:", err);
-            res.status(500).json({ error: "Failed to save address" });
-        }
-    });
 
     // Update an address
     app.put("/addresses/:id", async (req, res) => {
