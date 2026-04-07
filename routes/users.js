@@ -23,7 +23,7 @@ function registerUserRoutes(app, { getPool, requireSelfOrAdmin }) {
 
     app.post("/user/:userId/profile", requireSelfOrAdmin, async (req, res) => {
         const userId = parseInt(req.params.userId);
-        const { name, phone, email } = req.body;
+        const { name, phone, email, addresses } = req.body;
         const normalizedPhone =
             typeof phone === "string" ? phone.trim() : phone;
 
@@ -61,11 +61,6 @@ function registerUserRoutes(app, { getPool, requireSelfOrAdmin }) {
             params.push(JSON.stringify(addresses || []));
         }
 
-        if (updates.length) {
-            const sql = `UPDATE users SET ${updates.join(", ")} WHERE id = ?`;
-            params.push(userId);
-            await getPool().query(sql, params);
-        }
         if (updates.length) {
             const sql = `UPDATE users SET ${updates.join(", ")} WHERE id = ?`;
             params.push(userId);

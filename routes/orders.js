@@ -3,6 +3,22 @@ function toNullableInt(value) {
     return Number.isNaN(parsed) ? null : parsed;
 }
 
+function normalizePaymentMethod(method) {
+    switch (String(method || "").toLowerCase()) {
+        case "cod":
+        case "cash":
+            return "cash";
+        case "card":
+            return "card";
+        case "upi":
+            return "upi";
+        case "wallet":
+            return "wallet";
+        default:
+            return "cash";
+    }
+}
+
 function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
     app.post("/orders", async (req, res) => {
         console.log("Incoming order data:", req.body);
@@ -34,7 +50,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 toNullableInt(items?.[0]?.restaurantId) ??
                 toNullableInt(items?.[0]?.restaurant_id);
             const addressIdNumber = toNullableInt(addressId);
-            const normalizedPaymentMethod = paymentMethod || "cod";
+            const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
             const normalizedSubtotal = Number(subtotal ?? total ?? 0);
             const normalizedDeliveryFee = Number(deliveryFee ?? 0);
             const normalizedTotal = Number(total ?? 0);
@@ -76,9 +92,9 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                     normalizedSubtotal,
                     normalizedDeliveryFee,
                     normalizedTotal,
-                    "pending",
+                    "placed",
                     normalizedPaymentMethod,
-                    normalizedPaymentMethod === "cod" ? "pending" : "paid",
+                    normalizedPaymentMethod === "cash" ? "pending" : "paid",
                     doorNo,
                     street,
                     area,
@@ -247,7 +263,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             res.json({
                 orderId,
                 orderNumber,
-                status: "pending",
+                status: "placed",
                 message: "Order placed and receipt sent",
             });
         } catch (err) {

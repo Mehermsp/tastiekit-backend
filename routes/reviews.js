@@ -57,35 +57,56 @@ function registerReviewRoutes(app, { getPool, requireSelfOrAdmin }) {
                     });
             }
 
-            // Check if review already exists
+            // Check if a main order review already exists. We keep one main review
+            // row per order/user and update it when the user rates restaurant and
+            // delivery in separate steps from My Orders.
             const [existing] = await getPool().query(
-                "SELECT id FROM reviews WHERE order_id = ? AND user_id = ?",
+                "SELECT id, rating, comment, delivery_rating, delivery_comment FROM reviews WHERE order_id = ? AND user_id = ? AND menu_item_id IS NULL LIMIT 1",
                 [orderId, requesterId]
             );
 
+            let reviewId;
+
             if (existing.length) {
-                return res
-                    .status(400)
-                    .json({ error: "Review already exists for this order" });
+                const current = existing[0];
+                await getPool().query(
+                    `UPDATE reviews
+                     SET restaurant_id = COALESCE(?, restaurant_id),
+                         rating = ?,
+                         comment = ?,
+                         delivery_rating = ?,
+                         delivery_comment = ?,
+                         updated_at = NOW()
+                     WHERE id = ?`,
+                    [
+                        restaurant_id || null,
+                        rating ?? current.rating ?? null,
+                        comment ?? current.comment ?? null,
+                        delivery_rating ?? current.delivery_rating ?? null,
+                        delivery_comment ?? current.delivery_comment ?? null,
+                        current.id,
+                    ]
+                );
+                reviewId = existing[0].id;
+            } else {
+                const [result] = await getPool().query(
+                    `INSERT INTO reviews (user_id, restaurant_id, order_id, rating, comment, delivery_rating, delivery_comment)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        requesterId,
+                        restaurant_id,
+                        orderId,
+                        rating,
+                        comment,
+                        delivery_rating,
+                        delivery_comment,
+                    ]
+                );
+                reviewId = result.insertId;
             }
 
-            // Create main order review
-            const [result] = await getPool().query(
-                `INSERT INTO reviews (user_id, restaurant_id, order_id, rating, comment, delivery_rating, delivery_comment)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    requesterId,
-                    restaurant_id,
-                    orderId,
-                    rating,
-                    comment,
-                    delivery_rating,
-                    delivery_comment,
-                ]
-            );
-
             // Handle individual menu item reviews if provided
-            const reviewIds = [result.insertId];
+            const reviewIds = [reviewId];
 
             if (menu_item_reviews && Array.isArray(menu_item_reviews)) {
                 for (const itemReview of menu_item_reviews) {
@@ -112,7 +133,7 @@ function registerReviewRoutes(app, { getPool, requireSelfOrAdmin }) {
 
             res.json({
                 success: true,
-                review_id: result.insertId,
+                review_id: reviewId,
                 message: "Review submitted successfully",
             });
         } catch (error) {
