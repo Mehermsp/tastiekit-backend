@@ -3,6 +3,27 @@ const mysql = require("mysql2/promise");
 let pool;
 let availabilityColumnReady = false;
 let mealTypeColumnReady = false;
+let orderColumnsReady = false;
+
+async function ensureColumn(tableName, columnName, definition) {
+    const [rows] = await pool.query(
+        `
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ?
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+    `,
+        [process.env.DB_NAME, tableName, columnName]
+    );
+
+    if (!rows.length) {
+        await pool.query(
+            `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`
+        );
+        console.log(`Added ${tableName}.${columnName} column`);
+    }
+}
 
 async function ensureAvailabilityColumn() {
     if (availabilityColumnReady) {
@@ -71,6 +92,37 @@ async function ensureMealTypeColumn() {
     mealTypeColumnReady = true;
 }
 
+async function ensureOrderColumns() {
+    if (orderColumnsReady) {
+        return;
+    }
+
+    const orderColumns = [
+        ["restaurant_id", "INT AFTER user_id"],
+        ["payment_method", "VARCHAR(50) AFTER status"],
+        ["payment_status", "VARCHAR(50) DEFAULT 'pending' AFTER payment_method"],
+        ["payment_id", "VARCHAR(255) AFTER payment_status"],
+        ["address_id", "INT AFTER delivery_partner_id"],
+        ["subtotal", "DECIMAL(10,2) DEFAULT 0 AFTER address_id"],
+        ["delivery_fee", "DECIMAL(10,2) DEFAULT 0 AFTER discount_amount"],
+        ["order_number", "VARCHAR(50) AFTER delivered_at"],
+        ["door_no", "VARCHAR(255) AFTER driver"],
+        ["street", "VARCHAR(255) AFTER door_no"],
+        ["area", "VARCHAR(255) AFTER street"],
+        ["city", "VARCHAR(100) AFTER area"],
+        ["state", "VARCHAR(100) AFTER city"],
+        ["zip_code", "VARCHAR(20) AFTER state"],
+        ["phone", "VARCHAR(30) AFTER address"],
+        ["notes", "TEXT AFTER phone"],
+    ];
+
+    for (const [columnName, definition] of orderColumns) {
+        await ensureColumn("orders", columnName, definition);
+    }
+
+    orderColumnsReady = true;
+}
+
 async function initDb() {
     const config = {
         host: process.env.DB_HOST,
@@ -107,13 +159,6 @@ async function initDb() {
         )
     `);
 
-    // Add restaurant_id column to orders table if it doesn't exist
-    try {
-        await pool.query("SELECT restaurant_id FROM orders LIMIT 1");
-    } catch (e) {
-        await pool.query("ALTER TABLE orders ADD COLUMN restaurant_id INT AFTER user_id");
-    }
-
     // Reviews table for customer feedback
     await pool.query(`
         CREATE TABLE IF NOT EXISTS reviews (
@@ -139,6 +184,7 @@ async function initDb() {
 
     await ensureAvailabilityColumn();
     await ensureMealTypeColumn();
+    await ensureOrderColumns();
 }
 
 function getPool() {
@@ -150,4 +196,5 @@ module.exports = {
     getPool,
     ensureAvailabilityColumn,
     ensureMealTypeColumn,
+    ensureOrderColumns,
 };

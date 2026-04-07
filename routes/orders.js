@@ -1,10 +1,19 @@
+function toNullableInt(value) {
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
 function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
     app.post("/orders", async (req, res) => {
         console.log("Incoming order data:", req.body);
+        let connection;
+
         try {
             const {
                 userId,
                 items,
+                subtotal,
+                deliveryFee,
                 total,
                 paymentMethod,
                 doorNo,
@@ -17,38 +26,59 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 notes,
                 paymentId,
                 restaurantId,
+                addressId,
             } = req.body;
+            const userIdNumber = toNullableInt(userId);
+            const restaurantIdNumber =
+                toNullableInt(restaurantId) ??
+                toNullableInt(items?.[0]?.restaurantId) ??
+                toNullableInt(items?.[0]?.restaurant_id);
+            const addressIdNumber = toNullableInt(addressId);
+            const normalizedPaymentMethod = paymentMethod || "cod";
+            const normalizedSubtotal = Number(subtotal ?? total ?? 0);
+            const normalizedDeliveryFee = Number(deliveryFee ?? 0);
+            const normalizedTotal = Number(total ?? 0);
 
-            if (!items || items.length === 0) {
+            if (!userIdNumber) {
+                return res.status(400).json({ error: "Invalid user" });
+            }
+
+            if (!Array.isArray(items) || items.length === 0) {
                 return res.status(400).json({ error: "No items in order" });
             }
 
-            const [userRows] = await getPool().query(
+            if (!doorNo || !street || !city || !zipCode || !phone) {
+                return res.status(400).json({ error: "Complete address required" });
+            }
+
+            connection = await getPool().getConnection();
+            await connection.beginTransaction();
+
+            const [userRows] = await connection.query(
                 "SELECT name,email FROM users WHERE id = ?",
-                [userId]
+                [userIdNumber]
             );
 
             if (!userRows.length) {
-                return res.status(400).json({ error: "User not found" });
+                throw new Error("User not found");
             }
 
             const user = userRows[0];
-            if (!doorNo || !street || !city || !zipCode || !phone) {
-                return res
-                    .status(400)
-                    .json({ error: "Complete address required" });
-            }
 
-            const [r] = await getPool().query(
+            const [r] = await connection.query(
                 `INSERT INTO orders
-    (user_id,restaurant_id,total,status,payment_method,door_no,street,area,city,state,zip_code,phone,notes,payment_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+    (user_id,restaurant_id,address_id,subtotal,delivery_fee,total,status,payment_method,payment_status,door_no,street,area,city,state,zip_code,phone,notes,payment_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
                 [
-                    userId,
-                    restaurantId,
-                    total,
+                    userIdNumber,
+                    restaurantIdNumber,
+                    addressIdNumber,
+                    normalizedSubtotal,
+                    normalizedDeliveryFee,
+                    normalizedTotal,
                     "pending",
-                    paymentMethod,
+                    normalizedPaymentMethod,
+                    normalizedPaymentMethod === "cod" ? "pending" : "paid",
                     doorNo,
                     street,
                     area,
@@ -56,19 +86,36 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                     state,
                     zipCode,
                     phone,
-                    notes,
-                    paymentId,
+                    notes || "",
+                    paymentId || null,
                 ]
             );
 
             const orderId = r.insertId;
+            const orderNumber = `YM${String(orderId).padStart(5, "0")}`;
+
+            await connection.query(
+                "UPDATE orders SET order_number = ? WHERE id = ?",
+                [orderNumber, orderId]
+            );
 
             for (const it of items) {
-                await getPool().query(
+                await connection.query(
                     "INSERT INTO order_items (order_id, menu_id, name, price, qty) VALUES (?,?,?,?,?)",
-                    [orderId, it.id, it.name, it.price, it.qty]
+                    [
+                        orderId,
+                        toNullableInt(it.menu_id ?? it.id),
+                        it.name,
+                        Number(it.price || 0),
+                        Number(it.qty || 1),
+                    ]
                 );
             }
+
+            await connection.query("DELETE FROM carts WHERE user_id = ?", [
+                userIdNumber,
+            ]);
+            await connection.commit();
 
             const receiptHtml = `
 <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
@@ -81,9 +128,9 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
     <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
 
-    <p><strong>Order ID:</strong> YM${String(orderId).padStart(5, "0")}</p>
-    <p><strong>Payment Method:</strong> ${paymentMethod.toUpperCase()}</p>
-    <p><strong>Total Paid:</strong> Rs.${total}</p>
+    <p><strong>Order ID:</strong> ${orderNumber}</p>
+    <p><strong>Payment Method:</strong> ${normalizedPaymentMethod.toUpperCase()}</p>
+    <p><strong>Total Paid:</strong> Rs.${normalizedTotal}</p>
 
     <h3 style="margin-top:25px;">Ordered Items</h3>
 
@@ -147,7 +194,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
                 const adminHtml = `
     <div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
-      <div style="max-width:600px; margin:auto; background:#fff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+  <div style="max-width:600px; margin:auto; background:#fff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
 
         <h2 style="color:#E53935;">New Order Received!</h2>
 
@@ -155,10 +202,10 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
         <hr style="margin:20px 0;" />
 
-        <p><strong>Order ID:</strong> YM${String(orderId).padStart(5, "0")}</p>
+        <p><strong>Order ID:</strong> ${orderNumber}</p>
         <p><strong>Customer:</strong> ${user.name}</p>
-        <p><strong>Total Amount:</strong> Rs.${total}</p>
-        <p><strong>Payment:</strong> ${paymentMethod.toUpperCase()}</p>
+        <p><strong>Total Amount:</strong> Rs.${normalizedTotal}</p>
+        <p><strong>Payment:</strong> ${normalizedPaymentMethod.toUpperCase()}</p>
 
         <hr style="margin:20px 0;" />
 
@@ -186,7 +233,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                     admins.map((admin) =>
                         sendEmail(
                             admin.email,
-                            `New Order - YM${String(orderId).padStart(5, "0")}`,
+                            `New Order - ${orderNumber}`,
                             adminHtml
                         )
                     )
@@ -199,11 +246,23 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             res.json({
                 orderId,
+                orderNumber,
+                status: "pending",
                 message: "Order placed and receipt sent",
             });
         } catch (err) {
+            if (connection) {
+                await connection.rollback();
+            }
             console.error("Order creation error:", err);
+            if (err.message === "User not found") {
+                return res.status(400).json({ error: "User not found" });
+            }
             res.status(500).json({ error: "Failed to create order" });
+        } finally {
+            if (connection) {
+                connection.release();
+            }
         }
     });
 
@@ -214,15 +273,17 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             const [rows] = await getPool().query(
                 `
-            SELECT o.id, o.user_id as userId, o.restaurant_id, o.total, o.status, o.created_at, o.delivered_at,
+            SELECT o.id, o.user_id as userId, o.restaurant_id, r.name as restaurant_name, r.logo as restaurant_logo,
+                   o.total, o.status, o.created_at, o.delivered_at, o.order_number,
                    o.door_no, o.street, o.area, o.city, o.state, o.zip_code,
                    o.phone, o.notes,
-                   db.id as delivery_partner_id,
+                    db.id as delivery_partner_id,
                    db.name as delivery_boy_name,
                    db.phone as delivery_boy_phone,
                    db.email as delivery_boy_email
             FROM orders o
             LEFT JOIN users db ON o.delivery_partner_id = db.id
+            LEFT JOIN restaurants r ON o.restaurant_id = r.id
             WHERE o.id = ?
             `,
                 [id]
@@ -285,13 +346,15 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             const offset = (page - 1) * limit;
 
             let query = `
-            SELECT o.id, o.restaurant_id, o.total, o.status, o.created_at, o.delivered_at,
+            SELECT o.id, o.restaurant_id, r.name as restaurant_name, r.logo as restaurant_logo,
+                   o.total, o.status, o.created_at, o.delivered_at, o.order_number,
                    o.delivery_partner_id,
                    db.name as delivery_boy_name,
                    db.phone as delivery_boy_phone,
                    db.email as delivery_boy_email
             FROM orders o
             LEFT JOIN users db ON o.delivery_partner_id = db.id
+            LEFT JOIN restaurants r ON o.restaurant_id = r.id
             WHERE o.user_id = ?
         `;
 
