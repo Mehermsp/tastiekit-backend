@@ -2,6 +2,14 @@ function registerAdminRoutes(
     app,
     { getPool, isAdmin, ensureAvailabilityColumn, sendEmail, formatDeliveryPartnerHtml }
 ) {
+    const activeOrderStatuses = [
+        "confirmed",
+        "preparing",
+        "ready",
+        "picked_up",
+        "on_the_way",
+    ];
+
     app.get("/admin/orders", isAdmin, async (req, res) => {
         try {
             const { startDate, endDate } = req.query;
@@ -192,7 +200,7 @@ function registerAdminRoutes(
                 `
             UPDATE orders 
             SET delivery_partner_id = ?, 
-                status = 'accepted' 
+                status = 'confirmed' 
             WHERE id = ?
             `,
                 [deliveryBoyId, orderId]
@@ -236,13 +244,15 @@ function registerAdminRoutes(
         await ensureAvailabilityColumn();
         const [stats] = await getPool().query(`
         SELECT u.id, u.name,
-        SUM(CASE WHEN o.status IN ('accepted','preparing','picked_up') THEN 1 ELSE 0 END) AS active_orders,
+        SUM(CASE WHEN LOWER(TRIM(o.status)) IN (${activeOrderStatuses
+            .map(() => "?")
+            .join(",")}) THEN 1 ELSE 0 END) AS active_orders,
         SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) AS completed_orders
         FROM users u
         LEFT JOIN orders o ON u.id = o.delivery_partner_id
         WHERE u.role = 'delivery'
         GROUP BY u.id
-    `);
+    `, activeOrderStatuses);
 
         res.json(stats);
     });
@@ -257,13 +267,15 @@ function registerAdminRoutes(
                 u.email,
                 u.phone,
                 u.is_available,
-                COUNT(CASE WHEN o.status IN ('accepted','preparing','picked_up') THEN 1 END) AS active_orders,
+                COUNT(CASE WHEN LOWER(TRIM(o.status)) IN (${activeOrderStatuses
+                    .map(() => "?")
+                    .join(",")}) THEN 1 END) AS active_orders,
                 COUNT(CASE WHEN o.status = 'delivered' THEN 1 END) AS completed_orders
             FROM users u
             LEFT JOIN orders o ON u.id = o.delivery_partner_id
             WHERE LOWER(TRIM(u.role)) = 'delivery'
             GROUP BY u.id
-        `);
+        `, activeOrderStatuses);
 
             console.log("Delivery boys from DB:", rows);
 

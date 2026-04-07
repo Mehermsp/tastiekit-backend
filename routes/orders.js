@@ -26,6 +26,37 @@ function generateOrderNumber() {
     return `YM${timestamp}${randomSuffix}`;
 }
 
+function normalizeOrderStatus(status) {
+    const normalized = String(status || "")
+        .toLowerCase()
+        .trim();
+
+    switch (normalized) {
+        case "accepted":
+            return "confirmed";
+        case "prepared":
+            return "ready";
+        case "out_for_delivery":
+            return "on_the_way";
+        default:
+            return normalized;
+    }
+}
+
+function applyOrderStatusFilter(query, params, status) {
+    const normalizedStatus = normalizeOrderStatus(status);
+
+    if (!normalizedStatus || normalizedStatus === "all") {
+        return query;
+    }
+
+    if (normalizedStatus === "active") {
+        return `${query} AND LOWER(TRIM(o.status)) NOT IN ('delivered', 'cancelled')`;
+    }
+
+    return `${query} AND LOWER(TRIM(o.status)) = ?`;
+}
+
 function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
     app.post("/orders", async (req, res) => {
         console.log("Incoming order data:", req.body);
@@ -140,63 +171,6 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             await connection.query("DELETE FROM carts WHERE user_id = ?", [
                 userIdNumber,
             ]);
-            await connection.commit();
-
-            const receiptHtml = `
-<div style="font-family:'Segoe UI', Arial; background:#f4f6fb; padding:40px 20px;">
-  <div style="max-width:650px; margin:auto; background:#ffffff; padding:35px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.08);">
-
-    <div style="text-align:center;">
-      <h1 style="margin:0; color:#E53935;">Yummly</h1>
-      <p style="color:#777;">Order Receipt</p>
-    </div>
-
-    <hr style="margin:25px 0; border:none; border-top:1px solid #eee;" />
-
-    <p><strong>Order ID:</strong> ${orderNumber}</p>
-    <p><strong>Payment Method:</strong> ${normalizedPaymentMethod.toUpperCase()}</p>
-    <p><strong>Total Paid:</strong> Rs.${normalizedTotal}</p>
-
-    <h3 style="margin-top:25px;">Ordered Items</h3>
-
-    <table width="100%" cellpadding="10" cellspacing="0" style="border-collapse:collapse;">
-      <tr style="background:#f9f9f9;">
-        <th align="left">Item</th>
-        <th align="center">Qty</th>
-        <th align="right">Total</th>
-      </tr>
-      ${items
-          .map(
-              (it) => `
-        <tr>
-          <td>${it.name}</td>
-          <td align="center">${it.qty}</td>
-          <td align="right">Rs.${it.price * it.qty}</td>
-        </tr>
-      `
-          )
-          .join("")}
-    </table>
-
-    <h3 style="margin-top:25px;">Delivery Address</h3>
-    <p style="color:#555;">
-      ${doorNo}, ${street}, ${area || ""}<br/>
-      ${city}, ${state} - ${zipCode}
-    </p>
-
-    <hr style="margin:30px 0;" />
-
-    <p style="text-align:center; color:#4CAF50; font-weight:600;">
-      Your food is being prepared
-    </p>
-
-    <p style="font-size:12px; color:#bbb; text-align:center;">
-      Copyright ${new Date().getFullYear()} Yummly
-    </p>
-
-  </div>
-</div>
-`;
 
             try {
                 await sendEmail(
@@ -366,7 +340,8 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             const userId = parseInt(req.params.userId);
             const page = parseInt(req.query.page) || 1;
             const limit = parseInt(req.query.limit) || 5;
-            const status = req.query.status;
+            const requestedStatus = req.query.status;
+            const normalizedStatus = normalizeOrderStatus(requestedStatus);
 
             const offset = (page - 1) * limit;
 
@@ -385,9 +360,14 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             const params = [userId];
 
-            if (status && status !== "all") {
-                query += " AND status = ?";
-                params.push(status);
+            query = applyOrderStatusFilter(query, params, normalizedStatus);
+
+            if (
+                normalizedStatus &&
+                normalizedStatus !== "all" &&
+                normalizedStatus !== "active"
+            ) {
+                params.push(normalizedStatus);
             }
 
             query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
@@ -419,6 +399,7 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             if (
                 currentStatus === "picked_up" ||
+                currentStatus === "on_the_way" ||
                 currentStatus === "delivered" ||
                 currentStatus === "cancelled"
             ) {

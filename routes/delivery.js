@@ -1,4 +1,21 @@
 function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEmail }) {
+    const normalizeDeliveryStatus = (status) => {
+        const normalized = String(status || "")
+            .toLowerCase()
+            .trim();
+
+        switch (normalized) {
+            case "accepted":
+                return "confirmed";
+            case "prepared":
+                return "ready";
+            case "out_for_delivery":
+                return "on_the_way";
+            default:
+                return normalized;
+        }
+    };
+
     app.get("/delivery/orders", async (req, res) => {
         const userId = req.headers.userid;
 
@@ -76,6 +93,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
             const orderId = parseInt(req.params.id);
             const userId = req.headers.userid;
             const { status, deliveryNotes, estimatedDeliveryTime } = req.body;
+            const normalizedStatus = normalizeDeliveryStatus(status);
 
             const [rows] = await getPool().query(
                 `
@@ -105,15 +123,18 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
             SET status = ?, 
                 delivery_notes = ?,
                 delivered_at = ${
-                    status === "delivered" ? "NOW()" : "delivered_at"
+                    normalizedStatus === "delivered" ? "NOW()" : "delivered_at"
                 }
             WHERE id = ?
             `,
-                [status, deliveryNotes || "", orderId]
+                [normalizedStatus, deliveryNotes || "", orderId]
             );
 
             try {
-                if (status === "picked_up") {
+                if (
+                    normalizedStatus === "picked_up" ||
+                    normalizedStatus === "on_the_way"
+                ) {
                     await sendEmail(
                         order.email,
                         "Your Order is Out for Delivery",
@@ -130,7 +151,7 @@ function registerDeliveryRoutes(app, { getPool, ensureAvailabilityColumn, sendEm
                     );
                 }
 
-                if (status === "delivered") {
+                if (normalizedStatus === "delivered") {
                     await sendEmail(
                         order.email,
                         "Your Order has been Delivered!",
