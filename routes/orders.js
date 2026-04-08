@@ -69,6 +69,8 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 subtotal,
                 deliveryFee,
                 total,
+                taxAmount,
+                discountAmount,
                 paymentMethod,
                 doorNo,
                 street,
@@ -91,6 +93,8 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
             const normalizedSubtotal = Number(subtotal ?? total ?? 0);
             const normalizedDeliveryFee = Number(deliveryFee ?? 0);
+            const normalizedTaxAmount = Number(taxAmount ?? 0);
+            const normalizedDiscountAmount = Number(discountAmount ?? 0);
             const normalizedTotal = Number(total ?? 0);
             const initialOrderNumber = generateOrderNumber();
 
@@ -122,13 +126,15 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             const [r] = await connection.query(
                 `INSERT INTO orders
-    (user_id,restaurant_id,address_id,subtotal,delivery_fee,total,status,payment_method,payment_status,order_number,door_no,street,area,city,state,zip_code,phone,notes,payment_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+    (user_id,restaurant_id,address_id,subtotal,tax_amount,discount_amount,delivery_fee,total,status,payment_method,payment_status,order_number,door_no,street,area,city,state,zip_code,phone,notes,payment_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
                 [
                     userIdNumber,
                     restaurantIdNumber,
                     addressIdNumber,
                     normalizedSubtotal,
+                    normalizedTaxAmount,
+                    normalizedDiscountAmount,
                     normalizedDeliveryFee,
                     normalizedTotal,
                     "placed",
@@ -153,6 +159,12 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             await connection.query(
                 "UPDATE orders SET order_number = ? WHERE id = ?",
                 [orderNumber, orderId]
+            );
+
+            // Log initial order status
+            await connection.query(
+                "INSERT INTO order_status_logs (order_id, status, updated_at) VALUES (?, ?, NOW())",
+                [orderId, "placed"]
             );
 
             for (const it of items) {

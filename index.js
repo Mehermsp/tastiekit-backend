@@ -32,7 +32,18 @@ const registerReviewRoutes = require("./routes/reviews");
 const app = express();
 app.use(helmet()); // Security headers
 app.use(rateLimit.ipLimiter);
-app.use(cors());
+app.use(
+    cors({
+        origin: [
+            "http://localhost:3000",
+            "http://localhost:19006",
+            "http://localhost:5173",
+        ],
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        credentials: true,
+        allowedHeaders: ["Content-Type", "Authorization", "userid"],
+    })
+);
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8000;
@@ -93,10 +104,14 @@ async function start() {
     try {
         await initDb();
         const httpServer = require("http").createServer(app);
-        
+
         const io = require("socket.io")(httpServer, {
             cors: {
-                origin: ["http://localhost:3000", "http://localhost:19006"], // Web + Expo
+                origin: [
+                    "http://localhost:3000",
+                    "http://localhost:19006",
+                    "http://localhost:5173",
+                ],
                 methods: ["GET", "POST"],
                 credentials: true,
             },
@@ -109,15 +124,21 @@ async function start() {
             try {
                 const { createAdapter } = require("@socket.io/redis-adapter");
                 const { createClient } = require("redis");
-                
-                const pubClient = createClient({ url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}` });
+
+                const pubClient = createClient({
+                    url: `redis://${process.env.REDIS_HOST}:${
+                        process.env.REDIS_PORT || 6379
+                    }`,
+                });
                 const subClient = pubClient.duplicate();
-                
+
                 await Promise.all([pubClient.connect(), subClient.connect()]);
                 io.adapter(createAdapter(pubClient, subClient));
                 logger.info("✅ Redis adapter connected");
             } catch (redisError) {
-                logger.warn("⚠️ Redis not available, running without Redis adapter");
+                logger.warn(
+                    "⚠️ Redis not available, running without Redis adapter"
+                );
             }
         }
 
