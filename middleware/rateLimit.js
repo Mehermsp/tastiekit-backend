@@ -1,4 +1,4 @@
-const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const { rateLimit } = require("express-rate-limit");
 
 // Using memory store for simplicity - works without Redis dependency
 const ipLimiter = rateLimit({
@@ -47,7 +47,9 @@ const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: process.env.NODE_ENV === "production" ? 40 : 120,
     keyGenerator: (req) =>
-        req.headers.userid ? String(req.headers.userid) : ipKeyGenerator(req.ip),
+        req.headers.userid
+            ? `user:${String(req.headers.userid)}`
+            : "anonymous-upload",
     standardHeaders: true,
     legacyHeaders: false,
     message: {
