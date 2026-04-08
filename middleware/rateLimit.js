@@ -21,7 +21,9 @@ const userLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
     max: process.env.NODE_ENV === "production" ? 1800 : 8000,
     keyGenerator: (req) => {
-        return req.headers.userid || "anonymous";
+        return req.headers.userid
+            ? `user:${String(req.headers.userid)}`
+            : "anonymous";
     },
     standardHeaders: true,
     legacyHeaders: false,
