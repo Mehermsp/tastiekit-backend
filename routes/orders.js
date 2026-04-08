@@ -172,19 +172,8 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 userIdNumber,
             ]);
 
-            try {
-                await sendEmail(
-                    user.email,
-                    `Yummly Receipt - Order #${orderId}`,
-                    receiptHtml
-                );
-                console.log("Receipt email sent");
-            } catch (emailErr) {
-                console.error(
-                    "Email failed but order saved:",
-                    emailErr.message
-                );
-            }
+            // Note: Receipt email functionality removed - order confirmation is sent via admin notification
+            // Full receipt can be generated on-demand when viewing order details
 
             try {
                 const [admins] = await getPool().query(

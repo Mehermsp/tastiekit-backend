@@ -3,7 +3,7 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const path = require("path");
 const helmet = require("helmet");
-const { rateLimit } = require("./middleware/rateLimit");
+const rateLimit = require("./middleware/rateLimit");
 const winston = require("winston");
 
 require("dotenv").config({ path: path.join(__dirname, ".env") });
@@ -40,32 +40,6 @@ const isAdmin = createIsAdmin(getPool);
 const requireSelfOrAdmin = createRequireSelfOrAdmin(getPool);
 
 const redisClient = require("./lib/redis");
-const deps = {
-    getPool,
-    ensureAvailabilityColumn,
-    ensureMealTypeColumn,
-    sendEmail,
-    formatDeliveryPartnerHtml,
-    isAdmin,
-    requireSelfOrAdmin,
-    redis: redisClient,
-    io, // Socket instance for emitters
-    logger,
-};
-
-registerSystemRoutes(app, deps);
-registerAuthRoutes(app, deps);
-registerMenuRoutes(app, deps);
-registerOrderRoutes(app, deps);
-registerCartRoutes(app, deps);
-registerWishlistRoutes(app, deps);
-registerUserRoutes(app, deps);
-registerAdminRoutes(app, deps);
-registerDeliveryRoutes(app, deps);
-registerAddressRoutes(app, deps);
-registerReviewRoutes(app, deps);
-
-app.use("/uploads", express.static("uploads"));
 
 // Winston logger
 const logger = winston.createLogger({
@@ -88,11 +62,38 @@ app.get("/healthz", (req, res) => {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Create deps object with logger (io will be added after socket setup)
+const depsBase = {
+    getPool,
+    ensureAvailabilityColumn,
+    ensureMealTypeColumn,
+    sendEmail,
+    formatDeliveryPartnerHtml,
+    isAdmin,
+    requireSelfOrAdmin,
+    redis: redisClient,
+    logger,
+};
+
+// Register routes that don't need io
+registerSystemRoutes(app, depsBase);
+registerAuthRoutes(app, depsBase);
+registerMenuRoutes(app, depsBase);
+registerCartRoutes(app, depsBase);
+registerWishlistRoutes(app, depsBase);
+registerUserRoutes(app, depsBase);
+registerAddressRoutes(app, depsBase);
+registerReviewRoutes(app, depsBase);
+
+// Routes that need io will be registered after socket setup
+
+app.use("/uploads", express.static("uploads"));
+
 async function start() {
     try {
         await initDb();
         const httpServer = require("http").createServer(app);
-        const { createAdapter } = require("socket.io-redis");
+        
         const io = require("socket.io")(httpServer, {
             cors: {
                 origin: ["http://localhost:3000", "http://localhost:19006"], // Web + Expo
@@ -103,14 +104,22 @@ async function start() {
             pingInterval: 25000,
         });
 
-        // Redis adapter for horizontal scaling
-        io.adapter(
-            createAdapter({
-                host: process.env.REDIS_HOST || "localhost",
-                port: process.env.REDIS_PORT || 6379,
-                password: process.env.REDIS_PASSWORD,
-            })
-        );
+        // Redis adapter (optional - only if Redis is configured)
+        if (process.env.REDIS_HOST) {
+            try {
+                const { createAdapter } = require("@socket.io/redis-adapter");
+                const { createClient } = require("redis");
+                
+                const pubClient = createClient({ url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || 6379}` });
+                const subClient = pubClient.duplicate();
+                
+                await Promise.all([pubClient.connect(), subClient.connect()]);
+                io.adapter(createAdapter(pubClient, subClient));
+                logger.info("✅ Redis adapter connected");
+            } catch (redisError) {
+                logger.warn("⚠️ Redis not available, running without Redis adapter");
+            }
+        }
 
         // Socket auth & rooms
         io.use((socket, next) => {
@@ -132,7 +141,6 @@ async function start() {
             );
         });
 
-        // Test event
         io.on("connection", (socket) => {
             logger.info(
                 `Socket connected: ${socket.id} (user:${socket.userId})`
@@ -143,6 +151,17 @@ async function start() {
                 logger.info(`Socket disconnected: ${socket.id}`);
             });
         });
+
+        // Create full deps object with io for routes that need it
+        const deps = {
+            ...depsBase,
+            io,
+        };
+
+        // Register routes that need io
+        registerOrderRoutes(app, deps);
+        registerAdminRoutes(app, deps);
+        registerDeliveryRoutes(app, deps);
 
         const PORT_NUM = PORT;
         httpServer.listen(PORT_NUM, () => {
