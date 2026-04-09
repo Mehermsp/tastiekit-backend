@@ -14,6 +14,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const isProduction = process.env.NODE_ENV === "production";
 const defaultAllowedOrigins = [
     "http://localhost:5173",
+    "http://localhost:4173",
     "http://localhost:3000",
     "http://localhost:19006",
     "https://tastiekit-restaurant.vercel.app",
