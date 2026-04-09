@@ -677,6 +677,8 @@ async function createSchema() {
 }
 
 async function initDb() {
+    const connectionLimit = Number(process.env.DB_CONNECTION_LIMIT) || 10;
+    const connectTimeout = Number(process.env.DB_CONNECT_TIMEOUT) || 20000;
     const config = {
         host: process.env.DB_HOST,
         port: process.env.DB_PORT,
@@ -684,8 +686,10 @@ async function initDb() {
         password: process.env.DB_PASS,
         database: process.env.DB_NAME,
         waitForConnections: true,
-        connectionLimit: 10,
-        connectTimeout: 10000,
+        connectionLimit,
+        connectTimeout,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10000,
     };
 
     if (process.env.DB_SSL === "true") {
