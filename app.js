@@ -14,9 +14,9 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const isProduction = process.env.NODE_ENV === "production";
 const defaultAllowedOrigins = [
     "http://localhost:5173",
-    "http://localhost:4173",
     "http://localhost:3000",
     "http://localhost:19006",
+    "http://localhost:4173",
     "https://tastiekit-restaurant.vercel.app",
     "https://tastiekit-restaurant.onrender.com",
     "https://tastiekit-app.netlify.app",
@@ -88,10 +88,96 @@ app.use(
 );
 app.use(bodyParser.json({ limit: "1mb" }));
 app.use(cookieParser());
+
+class BoundedSessionStore extends session.Store {
+    constructor({
+        ttlMs = 24 * 60 * 60 * 1000,
+        maxEntries = 5000,
+        cleanupIntervalMs = 5 * 60 * 1000,
+    } = {}) {
+        super();
+        this.ttlMs = ttlMs;
+        this.maxEntries = maxEntries;
+        this.sessions = new Map();
+        this.cleanupTimer = setInterval(
+            () => this.pruneExpired(),
+            cleanupIntervalMs
+        );
+        if (this.cleanupTimer.unref) this.cleanupTimer.unref();
+    }
+
+    get(sid, callback) {
+        const row = this.sessions.get(sid);
+        if (!row) return callback(null, null);
+        if (row.expiresAt <= Date.now()) {
+            this.sessions.delete(sid);
+            return callback(null, null);
+        }
+        callback(null, row.session);
+    }
+
+    set(sid, sessionData, callback) {
+        const expiresAt = Date.now() + this.resolveTtl(sessionData);
+        this.sessions.set(sid, { session: sessionData, expiresAt });
+        this.evictOverflow();
+        callback?.(null);
+    }
+
+    destroy(sid, callback) {
+        this.sessions.delete(sid);
+        callback?.(null);
+    }
+
+    touch(sid, sessionData, callback) {
+        const row = this.sessions.get(sid);
+        if (!row) {
+            callback?.(null);
+            return;
+        }
+        row.expiresAt = Date.now() + this.resolveTtl(sessionData);
+        this.sessions.set(sid, row);
+        callback?.(null);
+    }
+
+    resolveTtl(sessionData) {
+        const cookieMaxAge = Number(sessionData?.cookie?.maxAge);
+        if (Number.isFinite(cookieMaxAge) && cookieMaxAge > 0) {
+            return cookieMaxAge;
+        }
+        return this.ttlMs;
+    }
+
+    pruneExpired() {
+        const now = Date.now();
+        for (const [sid, row] of this.sessions.entries()) {
+            if (row.expiresAt <= now) {
+                this.sessions.delete(sid);
+            }
+        }
+    }
+
+    evictOverflow() {
+        if (this.sessions.size <= this.maxEntries) return;
+        const overflow = this.sessions.size - this.maxEntries;
+        const iterator = this.sessions.keys();
+        for (let i = 0; i < overflow; i += 1) {
+            const next = iterator.next();
+            if (next.done) break;
+            this.sessions.delete(next.value);
+        }
+    }
+}
+
+const sessionStore = new BoundedSessionStore({
+    ttlMs: Number(process.env.SESSION_TTL_MS) || 24 * 60 * 60 * 1000,
+    maxEntries: Number(process.env.SESSION_STORE_MAX_ENTRIES) || 5000,
+});
+
 app.use(
     session({
         name: "tastiekit.sid",
         secret: process.env.SESSION_SECRET || "tastiekit-restaurant-secret-key",
+        store: sessionStore,
         resave: false,
         saveUninitialized: false,
         cookie: {
@@ -133,10 +219,23 @@ const logger = winston.createLogger({
         new winston.transports.File({ filename: "combined.log" }),
     ],
 });
+const dbState = {
+    connected: false,
+    initializing: false,
+    lastError: null,
+};
 
 // Health check
 app.get("/healthz", (req, res) => {
-    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+    res.status(200).json({
+        status: dbState.connected ? "ok" : "degraded",
+        database: {
+            connected: dbState.connected,
+            initializing: dbState.initializing,
+            lastError: dbState.lastError,
+        },
+        timestamp: new Date().toISOString(),
+    });
 });
 
 // Create deps object
@@ -151,6 +250,42 @@ const deps = {
 };
 
 const notificationHelpers = registerNotificationRoutes(app, deps);
+
+app.use((req, res, next) => {
+    if (getPool()) return next();
+
+    const openPaths = ["/healthz", "/health", "/ping", "/diagnostics"];
+    if (openPaths.some((pathPrefix) => req.path.startsWith(pathPrefix))) {
+        return next();
+    }
+
+    const dbPaths = [
+        "/api",
+        "/auth",
+        "/user",
+        "/users",
+        "/menu",
+        "/restaurants",
+        "/restaurant",
+        "/orders",
+        "/cart",
+        "/wishlist",
+        "/admin",
+        "/delivery",
+        "/notifications",
+        "/reviews",
+        "/upload",
+        "/uploads",
+    ];
+    if (!dbPaths.some((pathPrefix) => req.path.startsWith(pathPrefix))) {
+        return next();
+    }
+
+    return res.status(503).json({
+        error: "Service initializing",
+        detail: "Database connection is not ready yet. Please retry shortly.",
+    });
+});
 
 // Register all routes
 registerSystemRoutes(app, deps);
@@ -231,17 +366,34 @@ app.use((req, res, next) => {
 });
 
 async function start() {
-    try {
-        await initDb();
-        
-        app.listen(PORT, () => {
-            logger.info(`🚀 Server running on port ${PORT}`);
-        });
-        logger.info(`✅ Health at /healthz`);
-    } catch (e) {
-        logger.error(`Failed to start server: ${e.message}`);
-        process.exit(1);
-    }
+    const connectDbWithRetry = async (attempt = 1) => {
+        if (dbState.connected || dbState.initializing) return;
+
+        dbState.initializing = true;
+        try {
+            await initDb();
+            dbState.connected = true;
+            dbState.lastError = null;
+            logger.info("Database initialized successfully");
+        } catch (e) {
+            dbState.connected = false;
+            dbState.lastError = e.message;
+            const retryMs = Math.min(30000, attempt * 2000);
+            logger.error(
+                `Database init failed (attempt ${attempt}): ${e.message}. Retrying in ${retryMs}ms`
+            );
+            setTimeout(() => connectDbWithRetry(attempt + 1), retryMs);
+        } finally {
+            dbState.initializing = false;
+        }
+    };
+
+    app.listen(PORT, () => {
+        logger.info(`Server running on port ${PORT}`);
+        logger.info("Health at /healthz");
+        connectDbWithRetry();
+    });
 }
 
 start();
+
