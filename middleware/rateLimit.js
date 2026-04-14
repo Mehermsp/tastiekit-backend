@@ -11,8 +11,11 @@ const ipLimiter = rateLimit({
     },
     statusCode: 429,
     skip: (req) => {
-        // Skip health checks and static files
-        return req.path === "/healthz" || req.path.startsWith("/uploads");
+        return (
+            req.path === "/healthz" ||
+            req.path.startsWith("/uploads") ||
+            req.path === "/notifications/stream"
+        );
     },
 });
 
@@ -30,7 +33,8 @@ const userLimiter = rateLimit({
     message: {
         error: "Too many requests from this user. Slow down.",
     },
-    skip: (req) => !req.headers.userid, // Only authenticated
+    skip: (req) =>
+        !req.headers.userid || req.path === "/notifications/stream",
 });
 
 const authLimiter = rateLimit({

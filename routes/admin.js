@@ -1,3 +1,5 @@
+const { notifyUser } = require("../lib/notificationBus");
+
 function registerAdminRoutes(
     app,
     {
@@ -306,6 +308,10 @@ function registerAdminRoutes(
                         "restaurant",
                     ]
                 );
+                notifyUser(application.owner_id, {
+                    type: "restaurant",
+                    title: "Restaurant Approved",
+                });
                 const [restaurantResult] = await getPool().query(
                     `INSERT INTO restaurants (
     owner_id, name, description, logo, city, area, address, pincode, landmark,
