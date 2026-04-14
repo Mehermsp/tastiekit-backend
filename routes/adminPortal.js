@@ -39,6 +39,8 @@ async function logAdminAction(pool, adminId, entityType, entityId, action, detai
     }
 }
 
+const { notifyUser } = require("../lib/notificationBus");
+
 async function sendBulkNotifications(pool, userIds, title, message, type, data = null) {
     if (!userIds.length) return 0;
     const values = userIds.map((userId) => [
@@ -55,6 +57,7 @@ async function sendBulkNotifications(pool, userIds, title, message, type, data =
          VALUES ?`,
         [values]
     );
+    userIds.forEach((uid) => notifyUser(uid, { title, message, type }));
     return userIds.length;
 }
 

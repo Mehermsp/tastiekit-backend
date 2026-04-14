@@ -34,10 +34,12 @@ function registerReviewRoutes(app, { getPool, requireSelfOrAdmin }) {
             return res.status(401).json({ error: "User not found" });
         }
 
-        if (users[0].role === 'restaurant') {
-            // Allow restaurant owners to proceed
+        if (
+            users[0].role === "restaurant_partner" ||
+            users[0].role === "restaurant"
+        ) {
             next();
-        } else if (users[0].role === 'admin') {
+        } else if (users[0].role === "admin") {
             // Allow admins
             next();
         } else {
@@ -276,8 +278,8 @@ function registerReviewRoutes(app, { getPool, requireSelfOrAdmin }) {
 
             // Get restaurant owned by this user
             const [restaurants] = await getPool().query(
-                "SELECT id FROM restaurants WHERE owner_id = ? AND is_approved = 1",
-                [requesterId]
+                "SELECT id FROM restaurants WHERE (owner_id = ? OR user_id = ?) AND is_approved = 1 ORDER BY id ASC LIMIT 1",
+                [requesterId, requesterId]
             );
 
             if (!restaurants.length) {

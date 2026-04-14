@@ -1,4 +1,85 @@
+const { notifyUser, bus } = require("../lib/notificationBus");
+
+function parseNotificationData(raw) {
+    if (raw == null) return null;
+    if (typeof raw === "object") return raw;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
 function registerNotificationRoutes(app, { getPool, requireSelfOrAdmin }) {
+    // Realtime stream (SSE). Uses session userId or `userid` header (same as other APIs).
+    app.get("/notifications/stream", (req, res) => {
+        const sessionUid = req.session && req.session.userId;
+        const headerUid = parseInt(req.headers.userid, 10);
+        const userId = sessionUid || (Number.isFinite(headerUid) ? headerUid : null);
+
+        if (!userId) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+        if (typeof res.flushHeaders === "function") {
+            res.flushHeaders();
+        }
+
+        const channel = `user:${userId}`;
+        const onPush = (payload) => {
+            try {
+                res.write(`data: ${JSON.stringify(payload)}\n\n`);
+            } catch {
+                /* client gone */
+            }
+        };
+
+        bus.on(channel, onPush);
+        res.write(`data: ${JSON.stringify({ type: "connected", at: Date.now() })}\n\n`);
+
+        const ping = setInterval(() => {
+            try {
+                res.write(`: ping ${Date.now()}\n\n`);
+            } catch {
+                clearInterval(ping);
+            }
+        }, 25000);
+
+        req.on("close", () => {
+            clearInterval(ping);
+            bus.off(channel, onPush);
+        });
+    });
+
+    // Lightweight poll helper (mobile / clients without SSE)
+    app.get(
+        "/user/:userId/notifications/summary",
+        requireSelfOrAdmin,
+        async (req, res) => {
+            try {
+                const userId = parseInt(req.params.userId, 10);
+                const [[row]] = await getPool().query(
+                    `SELECT
+                        SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unreadCount,
+                        COALESCE(MAX(id), 0) AS maxId
+                     FROM notifications WHERE user_id = ?`,
+                    [userId]
+                );
+                res.json({
+                    unreadCount: Number(row?.unreadCount || 0),
+                    maxId: Number(row?.maxId || 0),
+                });
+            } catch (error) {
+                console.error("Notification summary error:", error);
+                res.status(500).json({ error: "Failed to fetch summary" });
+            }
+        }
+    );
+
     // Get user notifications
     app.get(
         "/user/:userId/notifications",
@@ -9,6 +90,7 @@ function registerNotificationRoutes(app, { getPool, requireSelfOrAdmin }) {
                 const limit = parseInt(req.query.limit) || 20;
                 const offset = parseInt(req.query.offset) || 0;
                 const unreadOnly = req.query.unread === "true";
+                const afterId = parseInt(req.query.afterId, 10);
 
                 let query = `
                 SELECT id, title, message, type, data, is_read, read_at, created_at
@@ -21,15 +103,19 @@ function registerNotificationRoutes(app, { getPool, requireSelfOrAdmin }) {
                     query += " AND is_read = 0";
                 }
 
+                if (Number.isFinite(afterId) && afterId > 0) {
+                    query += " AND id > ?";
+                    params.push(afterId);
+                }
+
                 query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
                 params.push(limit, offset);
 
                 const [notifications] = await getPool().query(query, params);
 
-                // Parse JSON data for each notification
                 const parsed = notifications.map((n) => ({
                     ...n,
-                    data: n.data ? JSON.parse(n.data) : null,
+                    data: parseNotificationData(n.data),
                 }));
 
                 res.json(parsed);
@@ -184,6 +270,7 @@ function registerNotificationRoutes(app, { getPool, requireSelfOrAdmin }) {
                     data ? JSON.stringify(data) : null,
                 ]
             );
+            notifyUser(userId, { title, message, type });
         } catch (error) {
             console.error("Send notification error:", error);
         }

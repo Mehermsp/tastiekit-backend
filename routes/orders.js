@@ -1,3 +1,5 @@
+const { notifyUser } = require("../lib/notificationBus");
+
 function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
     const ORDER_STATUS = {
         PLACED: "placed",
@@ -158,6 +160,13 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 address = newAddresses[0];
             }
 
+            const lineDoorNo = address?.door_no ?? "";
+            const lineStreet = address?.street ?? "";
+            const lineArea = address?.area ?? "";
+            const lineCity = address?.city ?? "";
+            const lineState = address?.state ?? "";
+            const lineZip = address?.pincode ?? "";
+
             // Get restaurant details
             const [restaurants] = await getPool().query(
                 "SELECT name FROM restaurants WHERE id = ?",
@@ -235,6 +244,10 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                         JSON.stringify({ orderId, orderNumber }),
                     ]
                 );
+                notifyUser(restaurantUserId, {
+                    title: "New Order Received",
+                    type: "order",
+                });
             }
 
             // Send confirmation email to customer
@@ -363,13 +376,6 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
             // Send receipt email
             try {
-                const doorNo = address.door_no;
-                const street = address.street;
-                const area = address.area;
-                const city = address.city;
-                const state = address.state;
-                const zipCode = address.pincode;
-
                 const receiptHtml = `
 <div style="font-family: 'Segoe UI', Arial; background: #f4f6fb; padding: 40px 20px;">
   <div style="max-width: 650px; margin: auto; background: #fff; padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.08);">
@@ -417,8 +423,8 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
 
     <h3 style="margin-top:25px;">Delivery Address</h3>
     <p style="color:#555;">
-      ${doorNo}, ${street}, ${area || ""}<br/>
-      ${city}, ${state} - ${zipCode}
+      ${lineDoorNo}, ${lineStreet}, ${lineArea || ""}<br/>
+      ${lineCity}, ${lineState} - ${lineZip}
     </p>
 
     <hr style="margin:30px 0;" />
@@ -467,14 +473,16 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
         <p><strong>Order ID:</strong> YM${String(orderId).padStart(5, "0")}</p>
         <p><strong>Customer:</strong> ${user.name}</p>
         <p><strong>Total Amount:</strong> Rs.${total}</p>
-        <p><strong>Payment:</strong> ${paymentMethod.toUpperCase()}</p>
+        <p><strong>Payment:</strong> ${String(
+            normalizedPaymentMethod || paymentMethod || "cash"
+        ).toUpperCase()}</p>
 
         <hr style="margin:20px 0;" />
 
         <h3>Delivery Address</h3>
         <p style="color:#555;">
-          ${doorNo}, ${street}, ${area || ""}<br/>
-          ${city}, ${state} - ${zipCode}
+          ${lineDoorNo}, ${lineStreet}, ${lineArea || ""}<br/>
+          ${lineCity}, ${lineState} - ${lineZip}
         </p>
 
         <hr style="margin:20px 0;" />
@@ -562,9 +570,25 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
             const isOwner = order.user_id === requesterId;
             const isDeliveryPartner = order.delivery_partner_id === requesterId;
 
-            if (!isAdmin && !isOwner && !isDeliveryPartner) {
+            let isRestaurantStaff = false;
+            if (
+                !isAdmin &&
+                !isOwner &&
+                !isDeliveryPartner &&
+                requesterId
+            ) {
+                const [restaurantRows] = await getPool().query(
+                    "SELECT id FROM restaurants WHERE id = ? AND (owner_id = ? OR user_id = ?)",
+                    [order.restaurant_id, requesterId, requesterId]
+                );
+                isRestaurantStaff = restaurantRows.length > 0;
+            }
+
+            if (!isAdmin && !isOwner && !isDeliveryPartner && !isRestaurantStaff) {
                 return res.status(403).json({ error: "Unauthorized" });
             }
+
+            order.userId = order.user_id;
 
             // Get address details
             const [addresses] = await getPool().query(
@@ -870,10 +894,14 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
     });
 
     // Cancel order
-    app.put("/orders/:orderId/cancel", requireSelfOrAdmin, async (req, res) => {
+    app.put("/orders/:orderId/cancel", async (req, res) => {
         try {
             const orderId = parseInt(req.params.orderId);
-            const requesterId = parseInt(req.headers.userid);
+            const requesterId = parseInt(req.headers.userid, 10);
+
+            if (!requesterId) {
+                return res.status(401).json({ error: "Unauthorized" });
+            }
 
             const [orders] = await getPool().query(
                 "SELECT user_id, status FROM orders WHERE id = ?",
@@ -884,7 +912,14 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
                 return res.status(404).json({ error: "Order not found" });
             }
 
-            if (orders[0].user_id !== requesterId) {
+            const [requesterRows] = await getPool().query(
+                "SELECT role FROM users WHERE id = ?",
+                [requesterId]
+            );
+            const requesterIsAdmin =
+                requesterRows.length && requesterRows[0].role === "admin";
+
+            if (!requesterIsAdmin && orders[0].user_id !== requesterId) {
                 return res.status(403).json({ error: "Unauthorized" });
             }
 
@@ -985,80 +1020,6 @@ function registerOrderRoutes(app, { getPool, sendEmail, requireSelfOrAdmin }) {
         } catch (err) {
             console.error("Restaurant order status error:", err);
             res.status(500).json({ error: "Failed to update status" });
-        }
-    });
-
-    app.get("/orders/:id", async (req, res) => {
-        try {
-            const id = parseInt(req.params.id);
-            const requesterId = parseInt(req.headers.userid, 10);
-
-            const [rows] = await getPool().query(
-                `
-                SELECT o.id, o.user_id as userId, o.total, o.status, o.created_at, o.delivered_at,
-                       COALESCE(a.door_no, o.door_no) as door_no,
-                       COALESCE(a.street, o.street) as street,
-                       COALESCE(a.area, o.area) as area,
-                       COALESCE(a.city, o.city) as city,
-                       COALESCE(a.state, o.state) as state,
-                       COALESCE(a.pincode, o.zip_code) as zip_code,
-                       o.phone, o.notes,
-                       db.id as delivery_partner_id,
-                       db.name as delivery_partner_name,
-                       db.phone as delivery_partner_phone,
-                       db.email as delivery_partner_email
-                FROM orders o
-                LEFT JOIN addresses a ON o.address_id = a.id
-                LEFT JOIN users db ON o.delivery_partner_id = db.id
-                WHERE o.id = ?
-                `,
-                [id]
-            );
-
-            if (!rows.length) {
-                return res.status(404).json({ error: "Order not found" });
-            }
-
-            const order = rows[0];
-
-            if (!requesterId) {
-                return res.status(401).json({ error: "Unauthorized" });
-            }
-
-            const [requesterRows] = await getPool().query(
-                "SELECT role FROM users WHERE id = ?",
-                [requesterId]
-            );
-
-            const isAdmin =
-                requesterRows.length && requesterRows[0].role === "admin";
-            const isAssignedDelivery =
-                order.delivery_partner_id &&
-                Number(order.delivery_partner_id) === requesterId;
-
-            if (
-                !isAdmin &&
-                order.userId !== requesterId &&
-                !isAssignedDelivery
-            ) {
-                return res.status(403).json({ error: "Forbidden" });
-            }
-
-            const [items] = await getPool().query(
-                `
-                SELECT menu_id as id, name, price, qty
-                FROM order_items
-                WHERE order_id = ?
-                `,
-                [id]
-            );
-
-            order.items = items;
-
-            res.json(order);
-        } catch (err) {
-            console.error("Get order error:", err);
-            res.status(500).json({ error: "Failed to fetch order" });
         }
     });
 }
