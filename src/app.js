@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+import { env } from "./config/env.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import apiRoutes from "./routes/index.js";
 
@@ -10,9 +11,10 @@ export function createApp() {
 
     // Core Middleware
     app.use(helmet());
+    const corsOrigins = env.allowedOrigins?.length ? env.allowedOrigins : ["*"];
     app.use(
         cors({
-            origin: process.env.CORS_ORIGINS?.split(",") || ["*"],
+            origin: corsOrigins,
             credentials: true,
         })
     );
