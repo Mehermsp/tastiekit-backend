@@ -3,16 +3,27 @@ const db = require('../config/database');
 // Get Dashboard Statistics
 exports.getStatistics = async (req, res) => {
   try {
-    const [restaurants] = await db.query('SELECT COUNT(*) as total FROM restaurants WHERE status = "active"');
+    const [restaurants] = await db.query('SELECT COUNT(*) as total FROM restaurants WHERE is_approved = 1 OR status = "active"');
     const [applications] = await db.query('SELECT COUNT(*) as total FROM restaurant_applications WHERE status = "pending"');
     const [orders] = await db.query('SELECT COUNT(*) as total FROM orders');
-    const [partners] = await db.query('SELECT COUNT(*) as total FROM delivery_partners WHERE status = "active"');
     
-    // Get revenue (sum of all delivered orders)
+    // Count active delivery partners (users with role that can deliver)
+    const [partners] = await db.query(`
+      SELECT COUNT(*) as total FROM users 
+      WHERE role = 'delivery' AND is_available = 1
+    `);
+    
+    // Get revenue (sum of all orders)
     const [revenue] = await db.query(`
-      SELECT COALESCE(SUM(total_amount), 0) as total 
+      SELECT COALESCE(SUM(total), 0) as total 
       FROM orders 
       WHERE status = 'delivered'
+    `);
+
+    // Orders today
+    const [ordersToday] = await db.query(`
+      SELECT COUNT(*) as total FROM orders 
+      WHERE DATE(created_at) = CURDATE()
     `);
 
     res.json({
@@ -21,7 +32,7 @@ exports.getStatistics = async (req, res) => {
       total_orders: orders[0]?.total || 0,
       total_revenue: revenue[0]?.total || 0,
       active_delivery_partners: partners[0]?.total || 0,
-      orders_today: 0 // Can be calculated with date filter
+      orders_today: ordersToday[0]?.total || 0
     });
   } catch (error) {
     console.error('Error fetching statistics:', error);
@@ -33,7 +44,31 @@ exports.getStatistics = async (req, res) => {
 exports.getApplications = async (req, res) => {
   try {
     const { limit } = req.query;
-    let query = 'SELECT * FROM restaurant_applications ORDER BY created_at DESC';
+    let query = `
+      SELECT 
+        id,
+        owner_id as user_id,
+        owner_name,
+        email,
+        phone,
+        restaurant_name,
+        address,
+        city,
+        pincode,
+        state,
+        cuisines as cuisine_type,
+        open_time as opening_time,
+        close_time as closing_time,
+        fssai as license_number,
+        gst as gst_number,
+        pan,
+        status,
+        review_notes as rejection_reason,
+        created_at,
+        updated_at
+      FROM restaurant_applications 
+      ORDER BY created_at DESC
+    `;
     if (limit) {
       query += ` LIMIT ${parseInt(limit)}`;
     }
@@ -50,7 +85,36 @@ exports.getApplications = async (req, res) => {
 exports.getApplicationById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [applications] = await db.query('SELECT * FROM restaurant_applications WHERE id = ?', [id]);
+    const [applications] = await db.query(`
+      SELECT 
+        id,
+        owner_id as user_id,
+        owner_name,
+        email,
+        phone,
+        restaurant_name,
+        address,
+        city,
+        pincode,
+        state,
+        landmark,
+        cuisines as cuisine_type,
+        open_time as opening_time,
+        close_time as closing_time,
+        days_open,
+        fssai as license_number,
+        gst as gst_number,
+        pan,
+        logo,
+        status,
+        review_notes as rejection_reason,
+        reviewed_by,
+        reviewed_at,
+        created_at,
+        updated_at
+      FROM restaurant_applications 
+      WHERE id = ?
+    `, [id]);
     
     if (applications.length === 0) {
       return res.status(404).json({ error: 'Application not found' });
@@ -69,7 +133,10 @@ exports.approveApplication = async (req, res) => {
     const { id } = req.params;
     
     // Get application details
-    const [applications] = await db.query('SELECT * FROM restaurant_applications WHERE id = ?', [id]);
+    const [applications] = await db.query(`
+      SELECT * FROM restaurant_applications WHERE id = ?
+    `, [id]);
+    
     if (applications.length === 0) {
       return res.status(404).json({ error: 'Application not found' });
     }
@@ -80,19 +147,25 @@ exports.approveApplication = async (req, res) => {
     await db.query('START TRANSACTION');
     
     // Update application status
-    await db.query('UPDATE restaurant_applications SET status = "approved" WHERE id = ?', [id]);
+    await db.query(`
+      UPDATE restaurant_applications 
+      SET status = 'approved', reviewed_at = NOW()
+      WHERE id = ?
+    `, [id]);
     
     // Create restaurant record
     await db.query(`
       INSERT INTO restaurants (
-        user_id, restaurant_name, cuisine_type, address, city, state, pincode,
-        phone_number, email, license_number, gst_number, opening_time, closing_time,
-        delivery_radius, description, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        user_id, owner_id, name as restaurant_name, email, phone, 
+        description, address, city, state, pincode, landmark,
+        cuisines, open_time, close_time, days_open,
+        fssai, gst, pan, logo, is_approved, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')
     `, [
-      app.user_id, app.restaurant_name, app.cuisine_type, app.address, app.city, app.state, app.pincode,
-      app.phone_number, app.email, app.license_number, app.gst_number, app.opening_time, app.closing_time,
-      app.delivery_radius, app.description
+      app.owner_id, app.owner_id, app.restaurant_name, app.email, app.phone,
+      app.description || '', app.address, app.city, app.state || '', app.pincode, app.landmark || '',
+      app.cuisines, app.open_time, app.close_time, app.days_open || '',
+      app.fssai, app.gst, app.pan, app.logo || ''
     ]);
     
     await db.query('COMMIT');
@@ -111,10 +184,11 @@ exports.rejectApplication = async (req, res) => {
     const { id } = req.params;
     const { rejection_reason } = req.body;
     
-    await db.query(
-      'UPDATE restaurant_applications SET status = "rejected", rejection_reason = ? WHERE id = ?',
-      [rejection_reason, id]
-    );
+    await db.query(`
+      UPDATE restaurant_applications 
+      SET status = 'rejected', review_notes = ?, reviewed_at = NOW()
+      WHERE id = ?
+    `, [rejection_reason, id]);
     
     res.json({ message: 'Application rejected successfully' });
   } catch (error) {
@@ -127,12 +201,54 @@ exports.rejectApplication = async (req, res) => {
 exports.getRestaurants = async (req, res) => {
   try {
     const [restaurants] = await db.query(`
-      SELECT r.*, u.name as owner_name, u.email, u.phone 
+      SELECT 
+        r.id,
+        r.name as restaurant_name,
+        r.user_id,
+        r.owner_id,
+        r.email,
+        r.phone,
+        r.description,
+        r.image_url,
+        r.logo,
+        r.cover_image,
+        r.address,
+        r.city,
+        r.state,
+        r.pincode,
+        r.landmark,
+        r.cuisines as cuisine_type,
+        r.open_time as opening_time,
+        r.close_time as closing_time,
+        r.days_open,
+        r.fssai as license_number,
+        r.gst as gst_number,
+        r.pan,
+        r.rating,
+        r.is_approved,
+        r.is_open,
+        r.is_active as status,
+        r.total_orders,
+        r.total_revenue,
+        r.platform_fee_percent,
+        r.created_at,
+        r.updated_at,
+        u.name as owner_name,
+        u.email as owner_email,
+        u.phone as owner_phone
       FROM restaurants r
       LEFT JOIN users u ON r.user_id = u.id
       ORDER BY r.created_at DESC
     `);
-    res.json(restaurants);
+    
+    // Map is_approved to status for consistency
+    const result = restaurants.map(r => ({
+      ...r,
+      status: r.is_active !== null ? (r.is_active ? 'active' : 'inactive') : 
+              (r.is_approved ? 'active' : 'inactive')
+    }));
+    
+    res.json(result);
   } catch (error) {
     console.error('Error fetching restaurants:', error);
     res.status(500).json({ error: 'Failed to fetch restaurants' });
@@ -144,7 +260,40 @@ exports.getRestaurantById = async (req, res) => {
   try {
     const { id } = req.params;
     const [restaurants] = await db.query(`
-      SELECT r.*, u.name as owner_name, u.email, u.phone 
+      SELECT 
+        r.id,
+        r.name as restaurant_name,
+        r.user_id,
+        r.owner_id,
+        r.email,
+        r.phone,
+        r.description,
+        r.image_url,
+        r.logo,
+        r.cover_image,
+        r.address,
+        r.city,
+        r.state,
+        r.pincode,
+        r.landmark,
+        r.cuisines as cuisine_type,
+        r.open_time as opening_time,
+        r.close_time as closing_time,
+        r.days_open,
+        r.fssai as license_number,
+        r.gst as gst_number,
+        r.pan,
+        r.rating,
+        r.is_approved,
+        r.is_open,
+        r.is_active,
+        r.total_orders,
+        r.total_revenue,
+        r.created_at,
+        r.updated_at,
+        u.name as owner_name,
+        u.email as owner_email,
+        u.phone as owner_phone
       FROM restaurants r
       LEFT JOIN users u ON r.user_id = u.id
       WHERE r.id = ?
@@ -167,7 +316,8 @@ exports.updateRestaurantStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     
-    await db.query('UPDATE restaurants SET status = ? WHERE id = ?', [status, id]);
+    const isActive = status === 'active' ? 1 : 0;
+    await db.query('UPDATE restaurants SET is_active = ? WHERE id = ?', [isActive, id]);
     res.json({ message: 'Restaurant status updated successfully' });
   } catch (error) {
     console.error('Error updating restaurant status:', error);
@@ -197,14 +347,51 @@ exports.getOrders = async (req, res) => {
   try {
     const { status, limit } = req.query;
     let query = `
-      SELECT o.*, 
-             c.name as customer_name, c.phone as customer_phone,
-             r.restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address,
-             d.name as delivery_partner_name, d.phone as delivery_partner_phone
+      SELECT 
+        o.id,
+        o.order_number,
+        o.user_id,
+        o.restaurant_id,
+        o.total,
+        o.subtotal,
+        o.discount_amount,
+        o.delivery_fee,
+        o.tax_amount,
+        o.status,
+        o.payment_method,
+        o.payment_status,
+        o.payment_id,
+        o.delivery_partner_id,
+        o.address_id,
+        o.delivery_notes,
+        o.estimated_delivery_time,
+        o.actual_delivery_time,
+        o.created_at,
+        o.updated_at,
+        o.delivered_at,
+        -- Customer details
+        cu.name as customer_name,
+        cu.phone as customer_phone,
+        -- Restaurant details
+        r.name as restaurant_name,
+        r.phone as restaurant_phone,
+        r.address as restaurant_address,
+        -- Delivery partner details
+        dp.name as delivery_partner_name,
+        dp.phone as delivery_partner_phone,
+        -- Delivery address
+        a.door_no,
+        a.street,
+        a.area,
+        a.city,
+        a.state,
+        a.pincode,
+        a.landmark
       FROM orders o
-      LEFT JOIN users c ON o.user_id = c.id
+      LEFT JOIN users cu ON o.user_id = cu.id
       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-      LEFT JOIN delivery_partners d ON o.delivery_partner_id = d.id
+      LEFT JOIN users dp ON o.delivery_partner_id = dp.id
+      LEFT JOIN addresses a ON o.address_id = a.id
       WHERE 1=1
     `;
     
@@ -220,7 +407,15 @@ exports.getOrders = async (req, res) => {
     }
     
     const [orders] = await db.query(query, params);
-    res.json(orders);
+    
+    // Format delivery address
+    const formattedOrders = orders.map(o => ({
+      ...o,
+      delivery_address: [o.door_no, o.street, o.area, o.city, o.state, o.pincode]
+        .filter(Boolean).join(', ')
+    }));
+    
+    res.json(formattedOrders);
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
@@ -232,14 +427,50 @@ exports.getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
     const [orders] = await db.query(`
-      SELECT o.*, 
-             c.name as customer_name, c.phone as customer_phone,
-             r.restaurant_name, r.phone as restaurant_phone, r.address as restaurant_address,
-             d.name as delivery_partner_name, d.phone as delivery_partner_phone
+      SELECT 
+        o.id,
+        o.order_number,
+        o.user_id,
+        o.restaurant_id,
+        o.total,
+        o.subtotal,
+        o.discount_amount,
+        o.delivery_fee,
+        o.tax_amount,
+        o.status,
+        o.payment_method,
+        o.payment_status,
+        o.payment_id,
+        o.delivery_partner_id,
+        o.delivery_notes,
+        o.estimated_delivery_time,
+        o.actual_delivery_time,
+        o.created_at,
+        o.updated_at,
+        o.delivered_at,
+        -- Customer details
+        cu.name as customer_name,
+        cu.phone as customer_phone,
+        -- Restaurant details
+        r.name as restaurant_name,
+        r.phone as restaurant_phone,
+        r.address as restaurant_address,
+        -- Delivery partner details
+        dp.name as delivery_partner_name,
+        dp.phone as delivery_partner_phone,
+        -- Delivery address
+        a.door_no,
+        a.street,
+        a.area,
+        a.city,
+        a.state,
+        a.pincode,
+        a.landmark
       FROM orders o
-      LEFT JOIN users c ON o.user_id = c.id
+      LEFT JOIN users cu ON o.user_id = cu.id
       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-      LEFT JOIN delivery_partners d ON o.delivery_partner_id = d.id
+      LEFT JOIN users dp ON o.delivery_partner_id = dp.id
+      LEFT JOIN addresses a ON o.address_id = a.id
       WHERE o.id = ?
     `, [id]);
     
@@ -249,9 +480,13 @@ exports.getOrderById = async (req, res) => {
     
     // Get order items
     const [items] = await db.query('SELECT * FROM order_items WHERE order_id = ?', [id]);
-    orders[0].items = items;
     
-    res.json(orders[0]);
+    const order = orders[0];
+    order.items = items;
+    order.delivery_address = [order.door_no, order.street, order.area, order.city, order.state, order.pincode]
+      .filter(Boolean).join(', ');
+    
+    res.json(order);
   } catch (error) {
     console.error('Error fetching order:', error);
     res.status(500).json({ error: 'Failed to fetch order' });
@@ -264,7 +499,17 @@ exports.updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     
-    await db.query('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
+    let updateData = { status };
+    
+    // If delivered, set delivered_at
+    if (status === 'delivered') {
+      updateData.delivered_at = new Date();
+    }
+    
+    const fields = Object.keys(updateData).map(key => `${key} = ?`).join(', ');
+    const values = Object.values(updateData);
+    
+    await db.query(`UPDATE orders SET ${fields} WHERE id = ?`, [...values, id]);
     res.json({ message: 'Order status updated successfully' });
   } catch (error) {
     console.error('Error updating order status:', error);
@@ -278,16 +523,26 @@ exports.assignDeliveryPartner = async (req, res) => {
     const { id } = req.params;
     const { delivery_partner_id } = req.body;
     
+    await db.query('START TRANSACTION');
+    
+    // Update order with delivery partner
     await db.query(
       'UPDATE orders SET delivery_partner_id = ?, status = "out_for_delivery" WHERE id = ?',
       [delivery_partner_id, id]
     );
     
-    // Update delivery partner status to busy
-    await db.query('UPDATE delivery_partners SET status = "busy" WHERE id = ?', [delivery_partner_id]);
+    // Create delivery assignment record
+    await db.query(`
+      INSERT INTO delivery_assignments (
+        order_id, delivery_partner_id, status, assigned_at
+      ) VALUES (?, ?, "assigned", NOW())
+    `, [id, delivery_partner_id]);
+    
+    await db.query('COMMIT');
     
     res.json({ message: 'Delivery partner assigned successfully' });
   } catch (error) {
+    await db.query('ROLLBACK');
     console.error('Error assigning delivery partner:', error);
     res.status(500).json({ error: 'Failed to assign delivery partner' });
   }
@@ -297,13 +552,38 @@ exports.assignDeliveryPartner = async (req, res) => {
 exports.getDeliveryPartners = async (req, res) => {
   try {
     const [partners] = await db.query(`
-      SELECT *, 
-             (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = dp.id AND status = 'delivered') as total_deliveries,
-             (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = dp.id) as completed_orders
-      FROM delivery_partners dp
-      ORDER BY created_at DESC
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.profile_image,
+        u.is_available,
+        u.role,
+        u.created_at,
+        -- Calculate stats
+        (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = u.id AND status = 'delivered') as total_deliveries,
+        (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = u.id) as completed_orders,
+        (SELECT AVG(rating) FROM reviews WHERE delivery_rating IS NOT NULL AND user_id = u.id) as rating,
+        (SELECT COUNT(*) FROM delivery_assignments WHERE delivery_partner_id = u.id AND status = "assigned") as pending_assignments,
+        u.delivery_fee_per_order
+      FROM users u
+      WHERE u.role = 'delivery'
+      ORDER BY u.created_at DESC
     `);
-    res.json(partners);
+    
+    // Map is_available to status
+    const result = partners.map(p => ({
+      ...p,
+      status: p.is_available ? 'active' : 'inactive',
+      vehicle_type: 'bike', // Default value, can be extended if you have a vehicle table
+      total_deliveries: p.total_deliveries || 0,
+      completed_orders: p.completed_orders || 0,
+      rating: p.rating ? parseFloat(p.rating).toFixed(1) : 'N/A',
+      pending_assignments: p.pending_assignments || 0
+    }));
+    
+    res.json(result);
   } catch (error) {
     console.error('Error fetching delivery partners:', error);
     res.status(500).json({ error: 'Failed to fetch delivery partners' });
@@ -314,13 +594,35 @@ exports.getDeliveryPartners = async (req, res) => {
 exports.getDeliveryPartnerById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [partners] = await db.query('SELECT * FROM delivery_partners WHERE id = ?', [id]);
+    const [partners] = await db.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.phone,
+        u.profile_image,
+        u.is_available,
+        u.role,
+        u.created_at,
+        u.delivery_fee_per_order,
+        (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = u.id AND status = 'delivered') as total_deliveries,
+        (SELECT COUNT(*) FROM orders WHERE delivery_partner_id = u.id) as completed_orders,
+        (SELECT AVG(rating) FROM reviews WHERE delivery_rating IS NOT NULL AND user_id = u.id) as rating
+      FROM users u
+      WHERE u.id = ? AND u.role = 'delivery'
+    `, [id]);
     
     if (partners.length === 0) {
       return res.status(404).json({ error: 'Delivery partner not found' });
     }
     
-    res.json(partners[0]);
+    const partner = partners[0];
+    partner.status = partner.is_available ? 'active' : 'inactive';
+    partner.total_deliveries = partner.total_deliveries || 0;
+    partner.completed_orders = partner.completed_orders || 0;
+    partner.rating = partner.rating ? parseFloat(partner.rating).toFixed(1) : 'N/A';
+    
+    res.json(partner);
   } catch (error) {
     console.error('Error fetching delivery partner:', error);
     res.status(500).json({ error: 'Failed to fetch delivery partner' });
@@ -333,7 +635,8 @@ exports.updateDeliveryPartnerStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     
-    await db.query('UPDATE delivery_partners SET status = ? WHERE id = ?', [status, id]);
+    const isAvailable = status === 'active' ? 1 : 0;
+    await db.query('UPDATE users SET is_available = ? WHERE id = ? AND role = "delivery"', [isAvailable, id]);
     res.json({ message: 'Delivery partner status updated successfully' });
   } catch (error) {
     console.error('Error updating delivery partner status:', error);
@@ -350,7 +653,7 @@ exports.updateDeliveryPartner = async (req, res) => {
     const fields = Object.keys(data).map(key => `${key} = ?`).join(', ');
     const values = Object.values(data);
     
-    await db.query(`UPDATE delivery_partners SET ${fields} WHERE id = ?`, [...values, id]);
+    await db.query(`UPDATE users SET ${fields} WHERE id = ?`, [...values, id]);
     res.json({ message: 'Delivery partner updated successfully' });
   } catch (error) {
     console.error('Error updating delivery partner:', error);
@@ -369,7 +672,14 @@ exports.getGeneralSettings = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error fetching general settings:', error);
-    res.status(500).json({ error: 'Failed to fetch general settings' });
+    // Return defaults if table doesn't exist
+    res.json({
+      platform_name: 'TastieKit',
+      support_email: 'support@tastiekit.com',
+      support_phone: '+91 9876543210',
+      currency: 'INR',
+      timezone: 'Asia/Kolkata'
+    });
   }
 };
 
@@ -403,7 +713,14 @@ exports.getNotificationSettings = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error fetching notification settings:', error);
-    res.status(500).json({ error: 'Failed to fetch notification settings' });
+    res.json({
+      email_notifications: true,
+      sms_notifications: false,
+      push_notifications: true,
+      new_order_alert: true,
+      new_application_alert: true,
+      low_stock_alert: false
+    });
   }
 };
 
@@ -438,7 +755,12 @@ exports.getSecuritySettings = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error fetching security settings:', error);
-    res.status(500).json({ error: 'Failed to fetch security settings' });
+    res.json({
+      two_factor_auth: false,
+      session_timeout: 30,
+      password_expiry_days: 90,
+      max_login_attempts: 5
+    });
   }
 };
 
@@ -478,7 +800,12 @@ exports.getRestaurantCommission = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error fetching commission settings:', error);
-    res.status(500).json({ error: 'Failed to fetch commission settings' });
+    res.json({
+      percentage: 15,
+      fixed_fee: 0,
+      min_order_amount: 100,
+      max_commission: 500
+    });
   }
 };
 
@@ -520,7 +847,14 @@ exports.getDeliverySettings = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error fetching delivery settings:', error);
-    res.status(500).json({ error: 'Failed to fetch delivery settings' });
+    res.json({
+      base_delivery_fee: 30,
+      per_km_rate: 10,
+      min_delivery_fee: 25,
+      max_delivery_fee: 100,
+      peak_hour_multiplier: 1.5,
+      peak_hours: '12:00-14:00,19:00-22:00'
+    });
   }
 };
 

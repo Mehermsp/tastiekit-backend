@@ -1,28 +1,33 @@
-import { Router } from "express";
-import adminRoutes from "./admin.js";
-import authRoutes from "./auth.js";
-import cartRoutes from "./cart.js";
-import customerRoutes from "./customer.js";
-import deliveryRoutes from "./delivery.js";
-import notificationRoutes from "./notifications.js";
-import orderRoutes from "./orders.js";
-import paymentRoutes from "./payment.js";
-import restaurantRoutes from "./restaurant.js";
-import restaurantsRoutes from "./restaurants.js";
-import reviewRoutes from "./reviews.js";
+const express = require('express');
+const router = express.Router();
 
-const router = Router();
+// Import all route modules
+const authRoutes = require('./auth');
+const adminRoutes = require('./adminRoutes');
+const customerRoutes = require('./customer');
+const restaurantRoutes = require('./restaurants');
+const orderRoutes = require('./orders');
+const cartRoutes = require('./cart');
+const deliveryRoutes = require('./delivery');
+const notificationRoutes = require('./notifications');
+const reviewRoutes = require('./reviews');
+const paymentRoutes = require('./payment');
 
-router.use("/auth", authRoutes);
-router.use("/customer", customerRoutes);
-router.use("/orders", orderRoutes);
-router.use("/delivery", deliveryRoutes);
-router.use("/restaurant", restaurantRoutes);
-router.use("/restaurants", restaurantsRoutes);
-router.use("/admin", adminRoutes);
-router.use("/payment", paymentRoutes);
-router.use("/cart", cartRoutes);
-router.use("/notifications", notificationRoutes);
-router.use("/reviews", reviewRoutes);
+// Mount routes
+router.use('/auth', authRoutes);
+router.use('/admin', adminRoutes);
+router.use('/customer', customerRoutes);
+router.use('/restaurant', restaurantRoutes);
+router.use('/orders', orderRoutes);
+router.use('/cart', cartRoutes);
+router.use('/delivery', deliveryRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/reviews', reviewRoutes);
+router.use('/payment', paymentRoutes);
 
-export default router;
+// Health check
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+module.exports = router;
