@@ -20,8 +20,8 @@ const validateRestaurantStatusTransition = (currentStatus, nextStatus) => {
     const allowedTransitions = {
         placed: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
         confirmed: [ORDER_STATUS.PREPARING, ORDER_STATUS.CANCELLED],
-        preparing: [ORDER_STATUS.READY_FOR_PICKUP],
-        ready_for_pickup: [],
+        preparing: [ORDER_STATUS.READY_FOR_PICKUP, ORDER_STATUS.CANCELLED],
+        ready_for_pickup: [ORDER_STATUS.CANCELLED],
         out_for_delivery: [],
         delivered: [],
         cancelled: [],

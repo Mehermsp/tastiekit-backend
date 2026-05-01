@@ -116,7 +116,7 @@ export const approveRestaurantApplication = async ({
 
         await connection.execute(
             `
-            INSERT INTO admin_activity_logs (
+            INSERT INTO admin_activity_log (
                 admin_id,
                 action,
                 entity_type,
@@ -155,7 +155,7 @@ export const listAdminActivityLogs = async () =>
         SELECT
             l.*,
             u.name AS admin_name
-        FROM admin_activity_logs l
+        FROM admin_activity_log l
         INNER JOIN users u ON u.id = l.admin_id
         ORDER BY l.created_at DESC
         LIMIT 100
