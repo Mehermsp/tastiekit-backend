@@ -896,7 +896,7 @@ export const updateOrderStatus = async ({
             ? ", delivery_partner_id = COALESCE(?, delivery_partner_id)"
             : "";
 
-    const sql = `
+    const sqlPrimary = `
         UPDATE orders
         SET status = ?, delivery_notes = COALESCE(?, delivery_notes), updated_at = CURRENT_TIMESTAMP
             ${deliveryPartnerSet} ${
@@ -904,12 +904,35 @@ export const updateOrderStatus = async ({
     } ${paymentSet}
         WHERE id = ?
     `;
+    const primaryParams = [nextStatus, notes || null];
+    if (deliveryPartnerId !== undefined) {
+        primaryParams.push(deliveryPartnerId || null);
+    }
+    primaryParams.push(orderId);
 
-    const params = [nextStatus, notes || null];
-    if (deliveryPartnerId !== undefined) params.push(deliveryPartnerId || null);
-    params.push(orderId);
+    const sqlFallback = `
+        UPDATE orders
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+            ${
+                deliveryPartnerId !== undefined
+                    ? ", delivery_partner_id = COALESCE(?, delivery_partner_id)"
+                    : ""
+            }
+            ${paymentSet}
+        WHERE id = ?
+    `;
+    const fallbackParams = [nextStatus];
+    if (deliveryPartnerId !== undefined) {
+        fallbackParams.push(deliveryPartnerId || null);
+    }
+    fallbackParams.push(orderId);
 
-    await query(sql, params);
+    try {
+        await query(sqlPrimary, primaryParams);
+    } catch {
+        // Legacy schemas may miss delivery_notes or timestamp columns.
+        await query(sqlFallback, fallbackParams);
+    }
     // Support both legacy and newer order_status_logs schemas.
     try {
         await query(
