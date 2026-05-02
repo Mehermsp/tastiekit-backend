@@ -9,8 +9,10 @@ export const ORDER_STATUS = {
     PLACED: "placed",
     CONFIRMED: "confirmed",
     PREPARING: "preparing",
-    READY_FOR_PICKUP: "ready_for_pickup",
-    OUT_FOR_DELIVERY: "out_for_delivery",
+    PREPARED: "prepared",
+    READY_FOR_PICKUP: "ready",
+    OUT_FOR_DELIVERY: "on_the_way",
+    PICKED_UP: "picked_up",
     DELIVERED: "delivered",
     CANCELLED: "cancelled",
 };

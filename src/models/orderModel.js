@@ -110,7 +110,7 @@
 //             price,
 //             qty AS quantity,
 //             -- Calculate subtotal here since the column is missing in the DB
-//             (price * qty) AS subtotal 
+//             (price * qty) AS subtotal
 //         FROM order_items
 //         WHERE order_id = ?
 //         ORDER BY id ASC
@@ -177,9 +177,9 @@
 //         // Fetch address for denormalization
 //         const [addressRows] = await connection.execute(
 //             `
-//             SELECT door_no, street, area, city, state, zip_code 
-//             FROM addresses 
-//             WHERE id = ? AND user_id = ? 
+//             SELECT door_no, street, area, city, state, zip_code
+//             FROM addresses
+//             WHERE id = ? AND user_id = ?
 //             LIMIT 1
 //             `,
 //             [addressId, customerId]
@@ -263,7 +263,7 @@
 
 //             await connection.execute(
 //                 `
-//                 INSERT INTO order_items 
+//                 INSERT INTO order_items
 //                 (order_id, menu_id, name, price, qty, discount, subtotal)
 //                 VALUES (?, ?, ?, ?, ?, ?, ?)
 //                 `,
@@ -338,7 +338,7 @@
 
 //     await query(
 //         `
-//         INSERT INTO order_status_logs 
+//         INSERT INTO order_status_logs
 //         (order_id, old_status, new_status, changed_by, changed_by_role, notes)
 //         VALUES (?, ?, ?, ?, ?, ?)
 //         `,
@@ -594,7 +594,7 @@
 //         FROM delivery_assignments da
 //         INNER JOIN orders o ON o.id = da.order_id
 //         INNER JOIN users u ON u.id = da.delivery_partner_id
-//         WHERE da.delivery_partner_id = ? 
+//         WHERE da.delivery_partner_id = ?
 //           AND da.status = 'delivered'
 //         `,
 //         [today, today, deliveryPartnerId]
@@ -609,7 +609,6 @@
 //         }
 //     );
 // };
-
 
 import { getOne, query, withTransaction } from "../config/db.js";
 import { ORDER_STATUS } from "../constants/index.js";
@@ -643,8 +642,18 @@ const orderSelect = `
 `;
 
 const statusTimestampFragments = {
+    placed: "",
+    confirmed: "confirmed_at = CURRENT_TIMESTAMP",
+    preparing: "preparing_at = CURRENT_TIMESTAMP",
+    prepared: "ready_at = CURRENT_TIMESTAMP",
+    ready: "ready_at = CURRENT_TIMESTAMP",
+    ready_for_pickup: "ready_at = CURRENT_TIMESTAMP",
+    picked_up: "picked_up_at = CURRENT_TIMESTAMP",
+    on_the_way: "picked_up_at = CURRENT_TIMESTAMP",
+    out_for_delivery: "picked_up_at = CURRENT_TIMESTAMP",
     delivered:
         "delivered_at = CURRENT_TIMESTAMP, actual_delivery_time = CURRENT_TIMESTAMP",
+    cancelled: "cancelled_at = CURRENT_TIMESTAMP",
 };
 
 const summarizeCart = (cartItems) => {
@@ -971,7 +980,7 @@ export const getDeliveryOpenOrders = async () =>
         FROM orders o
         INNER JOIN restaurants r ON r.id = o.restaurant_id
         LEFT JOIN delivery_assignments da ON da.order_id = o.id AND da.status IN ('assigned', 'accepted', 'picked_up')
-        WHERE o.status = 'ready_for_pickup' AND da.id IS NULL
+        WHERE o.status IN ('ready', 'ready_for_pickup') AND da.id IS NULL
         ORDER BY o.created_at ASC
         `
     );

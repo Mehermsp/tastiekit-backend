@@ -31,7 +31,7 @@ router.put("/restaurants/:id", adminController.updateRestaurant);
 // Orders Management
 router.get("/orders", adminController.getOrders);
 router.get("/orders/pending", (req, res) => {
-    req.query.status = "ready_for_pickup";
+    req.query.status = "ready";
     return adminController.getOrders(req, res);
 });
 router.get("/orders/ready-for-pickup", adminController.getReadyForPickupOrders);
