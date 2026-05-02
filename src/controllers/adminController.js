@@ -52,40 +52,55 @@ export const getStatistics = async (req, res) => {
 export const getApplications = async (req, res) => {
     try {
         const { limit } = req.query;
-        let sql = `
-            SELECT 
-                id,
-                owner_id as user_id,
-                owner_name,
-                email,
-                phone,
-                restaurant_name,
-                address,
-                city,
-                pincode,
-                NULL as state,
-                cuisines as cuisine_type,
-                open_time as opening_time,
-                close_time as closing_time,
-fssai_number as license_number,
-                gst_number as gst_number,
-                pan_number as pan_number,
-                status,
-                review_notes as rejection_reason,
-                created_at,
-                updated_at
-            FROM restaurant_applications 
-            ORDER BY created_at DESC
-        `;
-        if (limit) {
-            sql += ` LIMIT ${parseInt(limit)}`;
+        let applications = [];
+
+        try {
+            let sql = `
+                SELECT 
+                    id,
+                    owner_id as user_id,
+                    owner_name,
+                    email,
+                    phone,
+                    restaurant_name,
+                    address,
+                    city,
+                    pincode,
+                    NULL as state,
+                    cuisines as cuisine_type,
+                    open_time as opening_time,
+                    close_time as closing_time,
+                    fssai_number as license_number,
+                    gst_number as gst_number,
+                    pan_number as pan_number,
+                    status,
+                    review_notes as rejection_reason,
+                    created_at,
+                    updated_at
+                FROM restaurant_applications 
+                ORDER BY created_at DESC
+            `;
+            if (limit) {
+                sql += ` LIMIT ${parseInt(limit)}`;
+            }
+
+            applications = await query(sql);
+        } catch (tableError) {
+            // Table might not exist - return empty array instead of error
+            console.warn(
+                "Restaurant applications table error:",
+                tableError.message
+            );
+            applications = [];
         }
 
-        const applications = await query(sql);
         res.json(applications);
     } catch (error) {
         console.error("Error fetching applications:", error);
-        res.status(500).json({ error: "Failed to fetch applications" });
+        res.status(500).json({
+            error: "Failed to fetch applications",
+            details: error.message,
+        });
     }
 };
 
@@ -232,45 +247,75 @@ export const rejectApplication = async (req, res) => {
 // Get Restaurants
 export const getRestaurants = async (req, res) => {
     try {
-        const restaurants = await query(`
-            SELECT 
-                r.id,
-                r.name as restaurant_name,
-                r.user_id,
-                r.owner_id,
-                r.email,
-                r.phone,
-                r.description,
-                r.image_url,
-                r.logo,
-                r.cover_image,
-                r.address,
-                r.city,
-                r.state,
-                r.pincode,
-                r.landmark,
-                r.cuisines as cuisine_type,
-                r.open_time as opening_time,
-                r.close_time as closing_time,
-                r.days_open,
-r.fssai_number as license_number,
-                r.gst_number as gst_number,
-                r.pan_number as pan_number,
-                r.rating,
-                r.is_open,
-                r.is_active,
-                r.total_orders,
-                r.total_revenue,
-                r.platform_fee_percent,
-                r.created_at,
-                r.updated_at,
-                u.name as owner_name,
-                u.email as owner_email,
-                u.phone as owner_phone
-            FROM restaurants r
-            LEFT JOIN users u ON r.user_id = u.id
-            ORDER BY r.created_at DESC
-`);
+        let restaurants = [];
+        try {
+            restaurants = await query(`
+                SELECT 
+                    r.id,
+                    r.name as restaurant_name,
+                    r.user_id,
+                    r.owner_id,
+                    r.email,
+                    r.phone,
+                    r.description,
+                    r.image_url,
+                    r.logo,
+                    r.cover_image,
+                    r.address,
+                    r.city,
+                    r.state,
+                    r.pincode,
+                    r.landmark,
+                    r.cuisines as cuisine_type,
+                    r.open_time as opening_time,
+                    r.close_time as closing_time,
+                    r.days_open,
+                    r.fssai_number as license_number,
+                    r.gst_number as gst_number,
+                    r.pan_number as pan_number,
+                    r.rating,
+                    r.is_open,
+                    r.is_active,
+                    r.total_orders,
+                    r.total_revenue,
+                    r.platform_fee_percent,
+                    r.created_at,
+                    r.updated_at,
+                    u.name as owner_name,
+                    u.email as owner_email,
+                    u.phone as owner_phone
+                FROM restaurants r
+                LEFT JOIN users u ON r.user_id = u.id
+                ORDER BY r.created_at DESC
+            `);
+        } catch (joinError) {
+            // If LEFT JOIN fails, try simpler query without user join
+            console.warn(
+                "Restaurant query with join failed, trying simpler query:",
+                joinError.message
+            );
+            restaurants = await query(`
+                SELECT 
+                    r.id,
+                    r.name as restaurant_name,
+                    r.user_id,
+                    r.owner_id,
+                    r.email,
+                    r.phone,
+                    r.description,
+                    r.address,
+                    r.city,
+                    r.state,
+                    r.pincode,
+                    r.cuisines as cuisine_type,
+                    r.is_open,
+                    r.is_active,
+                    r.created_at,
+                    r.updated_at
+                FROM restaurants r
+                ORDER BY r.created_at DESC
+            `);
+        }
 
         // Map is_active to status for consistency
         const result = restaurants.map((r) => ({
@@ -281,7 +326,10 @@ r.fssai_number as license_number,
         res.json(result);
     } catch (error) {
         console.error("Error fetching restaurants:", error);
-        res.status(500).json({ error: "Failed to fetch restaurants" });
+        res.status(500).json({
+            error: "Failed to fetch restaurants",
+            details: error.message,
+        });
     }
 };
 
@@ -582,6 +630,7 @@ export const assignDeliveryPartner = async (req, res) => {
                 error: "Cannot assign delivery for delivered or cancelled orders",
             });
         }
+        // Allow assignment for ready, prepared, ready_for_pickup, on_the_way
         const allowedStatuses = [
             "ready",
             "ready_for_pickup",
@@ -612,9 +661,10 @@ export const assignDeliveryPartner = async (req, res) => {
                 .json({ error: "Delivery partner not found" });
         }
 
+        // Block assignment if delivery partner is offline
         if (!partnerRows[0].is_available) {
             return res.status(400).json({
-                error: "Selected delivery partner is not currently available",
+                error: "Cannot assign order: delivery partner is offline. Wait for them to go online first.",
             });
         }
 
@@ -686,6 +736,12 @@ export const assignDeliveryPartner = async (req, res) => {
 // Get Delivery Partners
 export const getDeliveryPartners = async (req, res) => {
     try {
+        const { showAll } = req.query;
+
+        // If showAll is not true, only show active (is_available = 1) delivery partners
+        const availabilityFilter =
+            showAll === "true" ? "" : "AND u.is_available = 1";
+
         const partners = await query(`
             SELECT 
                 u.id,
@@ -709,8 +765,8 @@ export const getDeliveryPartners = async (req, res) => {
                 (SELECT COALESCE(SUM(delivery_fee), 0) FROM orders WHERE delivery_partner_id = u.id AND status = 'delivered') as total_earnings,
                 u.delivery_fee_per_order
             FROM users u
-            WHERE u.role = 'delivery_partner'
-            ORDER BY u.created_at DESC
+            WHERE u.role = 'delivery_partner' ${availabilityFilter}
+            ORDER BY u.is_available DESC, u.created_at DESC
         `);
 
         // Map availability/load to status
