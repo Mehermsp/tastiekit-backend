@@ -24,24 +24,41 @@ const normalizeOrderStatusInput = (value) => {
         .replace(/[-\s]+/g, "_")
         .replace(/_+/g, "_");
 
+    // Map to exact database enum values: placed, confirmed, preparing, prepared, ready, picked_up, on_the_way, delivered, cancelled
     const aliases = {
-        accepted: ORDER_STATUS.CONFIRMED,
-        ready_to_pickup: ORDER_STATUS.READY_FOR_PICKUP,
-        ready_forpickup: ORDER_STATUS.READY_FOR_PICKUP,
-        ready_for__pickup: ORDER_STATUS.READY_FOR_PICKUP,
-        ready: ORDER_STATUS.READY_FOR_PICKUP,
+        accepted: "confirmed",
+        confirmed: "confirmed",
+        preparing: "preparing",
+        prepared: "prepared",
+        ready_to_pickup: "ready",
+        ready_forpickup: "ready",
+        ready_for__pickup: "ready",
+        ready: "ready",
+        ready_for_pickup: "ready",
+        ready_to_pick_up: "ready",
+        picked_up: "picked_up",
+        on_the_way: "on_the_way",
+        out_for_delivery: "on_the_way",
+        delivering: "on_the_way",
+        out: "picked_up",
+        delivered: "delivered",
+        cancelled: "cancelled",
+        cancel: "cancelled",
     };
 
     return aliases[normalized] || normalized;
 };
 
 const validateRestaurantStatusTransition = (currentStatus, nextStatus) => {
+    // Use database enum values directly: placed, confirmed, preparing, prepared, ready, picked_up, on_the_way, delivered, cancelled
     const allowedTransitions = {
-        placed: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
-        confirmed: [ORDER_STATUS.PREPARING, ORDER_STATUS.CANCELLED],
-        preparing: [ORDER_STATUS.READY_FOR_PICKUP, ORDER_STATUS.CANCELLED],
-        ready_for_pickup: [ORDER_STATUS.CANCELLED],
-        out_for_delivery: [],
+        placed: ["confirmed", "cancelled"],
+        confirmed: ["preparing", "cancelled"],
+        preparing: ["prepared", "ready", "cancelled"],
+        prepared: ["ready", "cancelled"],
+        ready: ["cancelled"],
+        picked_up: [],
+        on_the_way: [],
         delivered: [],
         cancelled: [],
     };
@@ -75,12 +92,16 @@ export const placeOrder = asyncHandler(async (req, res) => {
     void sendEmail({
         to: order?.customer_email,
         subject: `Order placed: ${order?.order_number || orderId}`,
-        text: `Your order ${order?.order_number || orderId} has been placed successfully.`,
+        text: `Your order ${
+            order?.order_number || orderId
+        } has been placed successfully.`,
     });
     void sendEmail({
         to: order?.restaurant_email,
         subject: `New order received: ${order?.order_number || orderId}`,
-        text: `A new order ${order?.order_number || orderId} was placed and is awaiting action.`,
+        text: `A new order ${
+            order?.order_number || orderId
+        } was placed and is awaiting action.`,
     });
 
     sendSuccess(res, { ...order, items }, "Order placed successfully", 201);
@@ -217,9 +238,9 @@ export const updateRestaurantOrderStatus = asyncHandler(async (req, res) => {
     void sendEmail({
         to: updated?.customer_email,
         subject: `Order update: ${updated?.order_number || updated?.id}`,
-        text: `Your order ${updated?.order_number || updated?.id} is now ${String(
-            status || ""
-        ).replace(/_/g, " ")}.`,
+        text: `Your order ${
+            updated?.order_number || updated?.id
+        } is now ${String(status || "").replace(/_/g, " ")}.`,
     });
 
     sendSuccess(res, updated, "Order status updated successfully");

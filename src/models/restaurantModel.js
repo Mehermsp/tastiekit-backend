@@ -187,7 +187,10 @@ export const createRestaurantApplication = async (payload) => {
             payload.openTime || payload.open_time,
             payload.closeTime || payload.close_time,
             JSON.stringify(payload.daysOpen || payload.days_open || []),
-            payload.fssaiNumber || payload.fssai || payload.fssai_number || null,
+            payload.fssaiNumber ||
+                payload.fssai ||
+                payload.fssai_number ||
+                null,
             payload.gstNumber || payload.gst || payload.gst_number || null,
             payload.panNumber || payload.pan || payload.pan_number || null,
         ]
@@ -223,7 +226,10 @@ export const getRestaurantByOwnerId = async (ownerId) =>
         [ownerId, ownerId]
     );
 
-export const updateRestaurantProfileByOwnerId = async (ownerId, payload = {}) => {
+export const updateRestaurantProfileByOwnerId = async (
+    ownerId,
+    payload = {}
+) => {
     const fields = [];
     const values = [];
 
@@ -257,7 +263,9 @@ export const updateRestaurantProfileByOwnerId = async (ownerId, payload = {}) =>
     assign("updated_at", new Date());
 
     await query(
-        `UPDATE restaurants SET ${fields.join(", ")} WHERE owner_id = ? OR user_id = ?`,
+        `UPDATE restaurants SET ${fields.join(
+            ", "
+        )} WHERE owner_id = ? OR user_id = ?`,
         [...values, ownerId, ownerId]
     );
 };
@@ -360,7 +368,7 @@ export const getRestaurantDashboard = async (restaurantId) => {
         SELECT
             COUNT(*) AS total_orders,
             COALESCE(SUM(CASE WHEN status = 'delivered' THEN total ELSE 0 END), 0) AS delivered_revenue,
-            COALESCE(SUM(CASE WHEN status IN ('placed', 'confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery') THEN 1 ELSE 0 END), 0) AS active_orders
+COALESCE(SUM(CASE WHEN status IN ('placed', 'confirmed', 'preparing', 'ready', 'ready_for_pickup', 'on_the_way', 'out_for_delivery') THEN 1 ELSE 0 END), 0) AS active_orders
         FROM orders
         WHERE restaurant_id = ?
         `,

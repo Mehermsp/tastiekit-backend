@@ -582,9 +582,9 @@ export const assignDeliveryPartner = async (req, res) => {
                 error: "Cannot assign delivery for delivered or cancelled orders",
             });
         }
-        if (order.status !== "ready_for_pickup") {
+        if (!["ready", "ready_for_pickup"].includes(order.status)) {
             return res.status(400).json({
-                error: "Delivery assignment is allowed only when order is ready_for_pickup",
+                error: "Delivery assignment is allowed only when order is ready for pickup",
             });
         }
 
@@ -1145,7 +1145,7 @@ export const getReadyForPickupOrders = async (req, res) => {
             FROM orders o
             LEFT JOIN users cu ON o.user_id = cu.id
             LEFT JOIN restaurants r ON o.restaurant_id = r.id
-            WHERE o.status = 'ready_for_pickup'
+WHERE o.status IN ('ready', 'ready_for_pickup')
             ORDER BY o.created_at DESC
         `);
 

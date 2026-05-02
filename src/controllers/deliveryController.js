@@ -26,7 +26,12 @@ const normalizeDeliveryStatusInput = (value) => {
         .replace(/\s+/g, "_");
 
     const aliases = {
+        accepted: "accepted",
+        picked_up: "picked_up",
         out_for_delivery: "picked_up",
+        on_the_way: "picked_up",
+        delivered: "delivered",
+        out: "picked_up",
     };
 
     return aliases[normalized] || normalized;
@@ -34,7 +39,10 @@ const normalizeDeliveryStatusInput = (value) => {
 
 const isAcceptanceWindowOpen = (assignedAt) => {
     if (!assignedAt) return false;
-    return Date.now() - new Date(assignedAt).getTime() <= ASSIGNMENT_RESPONSE_WINDOW_MS;
+    return (
+        Date.now() - new Date(assignedAt).getTime() <=
+        ASSIGNMENT_RESPONSE_WINDOW_MS
+    );
 };
 
 export const getDeliveryDashboard = asyncHandler(async (req, res) => {
@@ -177,7 +185,8 @@ export const rejectDeliveryOrder = asyncHandler(async (req, res) => {
         deliveryPartnerId: req.user.id,
         status: DELIVERY_ASSIGNMENT_STATUS.REJECTED,
         rejectionReason:
-            req.body.reason || "Rejected by delivery partner within response window",
+            req.body.reason ||
+            "Rejected by delivery partner within response window",
     });
     await clearOrderDeliveryPartner(req.params.orderId, req.user.id);
     await updateDeliveryAvailability(req.user.id, true);
@@ -196,10 +205,7 @@ export const pickupDeliveryOrder = asyncHandler(async (req, res) => {
             ORDER_STATUS.OUT_FOR_DELIVERY,
         ].includes(order.status)
     ) {
-        throw new AppError(
-            400,
-            "Order cannot be picked up in current state"
-        );
+        throw new AppError(400, "Order cannot be picked up in current state");
     }
 
     const assignment = await getAssignmentForOrderAndPartner(
