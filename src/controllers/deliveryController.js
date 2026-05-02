@@ -109,12 +109,18 @@ export const setDeliveryAvailability = asyncHandler(async (req, res) => {
 
 export const acceptDeliveryOrder = asyncHandler(async (req, res) => {
     const order = await getOrderById(req.params.orderId);
+    const allowedStatuses = [
+        ORDER_STATUS.READY,
+        ORDER_STATUS.PREPARED,
+        "ready_for_pickup",
+    ];
+
     if (
         !order ||
         Number(order.delivery_partner_id) !== Number(req.user.id) ||
-        order.status !== ORDER_STATUS.READY_FOR_PICKUP
+        !allowedStatuses.includes(order.status)
     ) {
-        throw new AppError(404, "Ready-for-pickup order not found");
+        throw new AppError(404, "Ready order not found");
     }
 
     const assignment = await getAssignmentForOrderAndPartner(
@@ -196,15 +202,17 @@ export const rejectDeliveryOrder = asyncHandler(async (req, res) => {
 
 export const pickupDeliveryOrder = asyncHandler(async (req, res) => {
     const order = await getOrderById(req.params.orderId);
+    const allowedStatuses = [
+        ORDER_STATUS.READY,
+        ORDER_STATUS.PREPARED,
+        ORDER_STATUS.ON_THE_WAY,
+        "ready_for_pickup",
+    ];
+
     if (!order || Number(order.delivery_partner_id) !== Number(req.user.id)) {
         throw new AppError(404, "Order not found or not assigned to you");
     }
-    if (
-        ![
-            ORDER_STATUS.READY_FOR_PICKUP,
-            ORDER_STATUS.OUT_FOR_DELIVERY,
-        ].includes(order.status)
-    ) {
+    if (!allowedStatuses.includes(order.status)) {
         throw new AppError(400, "Order cannot be picked up in current state");
     }
 
@@ -230,11 +238,11 @@ export const pickupDeliveryOrder = asyncHandler(async (req, res) => {
         status: DELIVERY_ASSIGNMENT_STATUS.PICKED_UP,
     });
 
-    if (order.status !== ORDER_STATUS.OUT_FOR_DELIVERY) {
+    if (order.status !== ORDER_STATUS.ON_THE_WAY) {
         await updateOrderStatus({
             orderId: req.params.orderId,
             currentStatus: order?.status,
-            nextStatus: ORDER_STATUS.OUT_FOR_DELIVERY,
+            nextStatus: ORDER_STATUS.ON_THE_WAY,
             actorId: req.user.id,
             actorRole: "delivery_partner",
             notes: "Order picked up by delivery partner",
@@ -254,10 +262,12 @@ export const completeDeliveryOrder = asyncHandler(async (req, res) => {
     if (order.status === ORDER_STATUS.DELIVERED) {
         return sendSuccess(res, null, "Order already delivered");
     }
-    if (order.status !== ORDER_STATUS.OUT_FOR_DELIVERY) {
+    // Accept both on_the_way and legacy out_for_delivery
+    const inDeliveryStatuses = [ORDER_STATUS.ON_THE_WAY, "out_for_delivery"];
+    if (!inDeliveryStatuses.includes(order.status)) {
         throw new AppError(
             400,
-            "Order must be out for delivery before marking delivered"
+            "Order must be on the way before marking delivered"
         );
     }
 
@@ -306,7 +316,8 @@ export const updateDeliveryOrderStatus = asyncHandler(async (req, res) => {
         throw new AppError(404, "Order not found or not assigned to you");
     }
 
-    if (status === "picked_up") {
+    // Handle pickup (mark order as on the way)
+    if (status === "picked_up" || status === "on_the_way") {
         await updateAssignmentStatus({
             orderId: req.params.orderId,
             deliveryPartnerId: req.user.id,
@@ -315,14 +326,16 @@ export const updateDeliveryOrderStatus = asyncHandler(async (req, res) => {
         await updateOrderStatus({
             orderId: req.params.orderId,
             currentStatus: order.status,
-            nextStatus: ORDER_STATUS.OUT_FOR_DELIVERY,
+            nextStatus: ORDER_STATUS.ON_THE_WAY,
             actorId: req.user.id,
             actorRole: "delivery_partner",
             notes: deliveryNotes || "Order picked up",
             deliveryPartnerId: req.user.id,
         });
         await updateDeliveryAvailability(req.user.id, false);
-    } else if (status === "delivered") {
+    }
+    // Handle delivery completion
+    else if (status === "delivered") {
         await updateAssignmentStatus({
             orderId: req.params.orderId,
             deliveryPartnerId: req.user.id,
@@ -339,7 +352,10 @@ export const updateDeliveryOrderStatus = asyncHandler(async (req, res) => {
         });
         await updateDeliveryAvailability(req.user.id, true);
     } else {
-        throw new AppError(400, "Invalid status update");
+        throw new AppError(
+            400,
+            "Invalid status update. Use 'picked_up' or 'delivered'"
+        );
     }
 
     sendSuccess(res, null, "Order status updated successfully");

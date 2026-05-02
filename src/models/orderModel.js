@@ -645,12 +645,10 @@ const statusTimestampFragments = {
     placed: "",
     confirmed: "confirmed_at = CURRENT_TIMESTAMP",
     preparing: "preparing_at = CURRENT_TIMESTAMP",
-    prepared: "ready_at = CURRENT_TIMESTAMP",
+    prepared: "prepared_at = CURRENT_TIMESTAMP",
     ready: "ready_at = CURRENT_TIMESTAMP",
-    ready_for_pickup: "ready_at = CURRENT_TIMESTAMP",
     picked_up: "picked_up_at = CURRENT_TIMESTAMP",
     on_the_way: "picked_up_at = CURRENT_TIMESTAMP",
-    out_for_delivery: "picked_up_at = CURRENT_TIMESTAMP",
     delivered:
         "delivered_at = CURRENT_TIMESTAMP, actual_delivery_time = CURRENT_TIMESTAMP",
     cancelled: "cancelled_at = CURRENT_TIMESTAMP",
