@@ -37,8 +37,7 @@ const statusTimestampFragments = {
     ready: "ready_at = CURRENT_TIMESTAMP",
     picked_up: "",
     on_the_way: "",
-    delivered:
-        "delivered_at = CURRENT_TIMESTAMP, actual_delivery_time = CURRENT_TIMESTAMP",
+    delivered: "delivered_at = CURRENT_TIMESTAMP", // keep this (orders table has it)
     cancelled: "cancelled_at = CURRENT_TIMESTAMP",
 };
 
@@ -407,7 +406,8 @@ export const updateAssignmentStatus = async ({
         SET status = ?, rejection_reason = ?,
             accepted_at = CASE WHEN ? = 'accepted' THEN CURRENT_TIMESTAMP ELSE accepted_at END,
             rejected_at = CASE WHEN ? = 'rejected' THEN CURRENT_TIMESTAMP ELSE rejected_at END,
-            delivered_at = CASE WHEN ? = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END
+            pickup_time = CASE WHEN ? = 'picked_up' THEN CURRENT_TIMESTAMP ELSE pickup_time END,
+            delivery_time = CASE WHEN ? = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivery_time END
         WHERE order_id = ? AND delivery_partner_id = ?
         `,
         [
@@ -469,7 +469,7 @@ export const listDeliveryAssignments = async (deliveryPartnerId) =>
             da.status AS assignment_status, 
             da.assigned_at,
             da.accepted_at,
-            da.delivered_at,
+            da.delivery_time,
             o.order_number, 
             o.status AS order_status,
             o.subtotal,
@@ -549,8 +549,8 @@ export const getDeliveryPartnerStats = async (deliveryPartnerId) => {
         rows = await query(
             `
             SELECT COUNT(*) AS total_deliveries,
-COUNT(CASE WHEN DATE(da.delivered_at) = ? THEN 1 END) AS today_deliveries,
-                   COALESCE(SUM(CASE WHEN DATE(da.delivered_at) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
+COUNT(CASE WHEN DATE(da.delivery_time) = ? THEN 1 END) AS today_deliveries,
+                   COALESCE(SUM(CASE WHEN DATE(da.delivery_time) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
                    COALESCE(AVG(rv.delivery_rating), 0) AS avg_rating
             FROM delivery_assignments da
             INNER JOIN orders o ON o.id = da.order_id
@@ -560,12 +560,12 @@ COUNT(CASE WHEN DATE(da.delivered_at) = ? THEN 1 END) AS today_deliveries,
             [today, today, deliveryPartnerId]
         );
     } catch {
-        // Compatibility with deployments still using delivered_at.
+        // Compatibility with deployments still using delivery_time.
         rows = await query(
             `
             SELECT COUNT(*) AS total_deliveries,
-                   COUNT(CASE WHEN DATE(da.delivered_at) = ? THEN 1 END) AS today_deliveries,
-                   COALESCE(SUM(CASE WHEN DATE(da.delivered_at) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
+                   COUNT(CASE WHEN DATE(da.delivery_time) = ? THEN 1 END) AS today_deliveries,
+                   COALESCE(SUM(CASE WHEN DATE(da.delivery_time) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
                    COALESCE(AVG(rv.delivery_rating), 0) AS avg_rating
             FROM delivery_assignments da
             INNER JOIN orders o ON o.id = da.order_id
