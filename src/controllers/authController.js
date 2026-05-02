@@ -101,13 +101,14 @@ export const register = asyncHandler(async (req, res) => {
 });
 
 export const login = asyncHandler(async (req, res) => {
-    const { identifier, password } = req.body;
+    const { identifier, email, phone, password } = req.body;
+    const loginIdentifier = identifier || email || phone;
 
-    if (!identifier) {
-        throw new AppError(400, "identifier is required");
+    if (!loginIdentifier) {
+        throw new AppError(400, "identifier (or email/phone) is required");
     }
 
-    const user = await findUserForAuth(identifier);
+    const user = await findUserForAuth(loginIdentifier);
     if (!user) {
         throw new AppError(404, "User not found");
     }

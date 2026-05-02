@@ -14,7 +14,13 @@ export const comparePassword = async (password, passwordHash) => {
         return false;
     }
 
-    return bcrypt.compare(password, passwordHash);
+    const looksLikeBcryptHash = /^\$2[aby]\$\d{2}\$/.test(passwordHash);
+    if (looksLikeBcryptHash) {
+        return bcrypt.compare(password, passwordHash);
+    }
+
+    // Backward compatibility for legacy plain-text passwords in old rows.
+    return String(password) === String(passwordHash);
 };
 
 export const createUser = async ({

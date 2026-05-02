@@ -1111,19 +1111,37 @@ export const adminAssignOrder = async ({
 
 export const getDeliveryPartnerStats = async (deliveryPartnerId) => {
     const today = new Date().toISOString().split("T")[0];
-    const rows = await query(
-        `
-        SELECT COUNT(*) AS total_deliveries,
-               COUNT(CASE WHEN DATE(da.delivery_time) = ? THEN 1 END) AS today_deliveries,
-               COALESCE(SUM(CASE WHEN DATE(da.delivery_time) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
-               COALESCE(AVG(rv.delivery_rating), 0) AS avg_rating
-        FROM delivery_assignments da
-        INNER JOIN orders o ON o.id = da.order_id
-        LEFT JOIN reviews rv ON rv.order_id = da.order_id
-        WHERE da.delivery_partner_id = ? AND da.status = 'delivered'
-        `,
-        [today, today, deliveryPartnerId]
-    );
+    let rows;
+    try {
+        rows = await query(
+            `
+            SELECT COUNT(*) AS total_deliveries,
+                   COUNT(CASE WHEN DATE(da.delivery_time) = ? THEN 1 END) AS today_deliveries,
+                   COALESCE(SUM(CASE WHEN DATE(da.delivery_time) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
+                   COALESCE(AVG(rv.delivery_rating), 0) AS avg_rating
+            FROM delivery_assignments da
+            INNER JOIN orders o ON o.id = da.order_id
+            LEFT JOIN reviews rv ON rv.order_id = da.order_id
+            WHERE da.delivery_partner_id = ? AND da.status = 'delivered'
+            `,
+            [today, today, deliveryPartnerId]
+        );
+    } catch {
+        // Compatibility with deployments still using delivered_at.
+        rows = await query(
+            `
+            SELECT COUNT(*) AS total_deliveries,
+                   COUNT(CASE WHEN DATE(da.delivered_at) = ? THEN 1 END) AS today_deliveries,
+                   COALESCE(SUM(CASE WHEN DATE(da.delivered_at) = ? THEN o.delivery_fee ELSE 0 END), 0) AS today_earnings,
+                   COALESCE(AVG(rv.delivery_rating), 0) AS avg_rating
+            FROM delivery_assignments da
+            INNER JOIN orders o ON o.id = da.order_id
+            LEFT JOIN reviews rv ON rv.order_id = da.order_id
+            WHERE da.delivery_partner_id = ? AND da.status = 'delivered'
+            `,
+            [today, today, deliveryPartnerId]
+        );
+    }
     return (
         rows[0] || {
             total_deliveries: 0,
