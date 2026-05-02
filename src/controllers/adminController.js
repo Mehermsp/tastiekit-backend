@@ -582,9 +582,18 @@ export const assignDeliveryPartner = async (req, res) => {
                 error: "Cannot assign delivery for delivered or cancelled orders",
             });
         }
-        if (!["ready", "ready_for_pickup"].includes(order.status)) {
+        const allowedStatuses = [
+            "ready",
+            "ready_for_pickup",
+            "prepared",
+            "on_the_way",
+            "out_for_delivery",
+        ];
+        if (!allowedStatuses.includes(order.status)) {
             return res.status(400).json({
-                error: "Delivery assignment is allowed only when order is ready for pickup",
+                error:
+                    "Delivery assignment is allowed only when order is ready for pickup. Current status: " +
+                    order.status,
             });
         }
 

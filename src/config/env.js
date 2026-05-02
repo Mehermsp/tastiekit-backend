@@ -21,8 +21,9 @@ const parseBoolean = (value, fallback = false) => {
 const requiredEnv = [
     "JWT_ACCESS_SECRET",
     "DB_HOST",
+    "DB_PORT",
     "DB_USER",
-    "DB_PASSWORD",
+    "DB_PASS",
     "DB_NAME",
 ];
 
@@ -46,9 +47,9 @@ export const env = {
 
     // Database Config
     dbHost: process.env.DB_HOST,
-    dbPort: Number(process.env.DB_PORT || 3306),
+    dbPort: Number(process.env.DB_PORT || 17315),
     dbUser: process.env.DB_USER,
-    dbPassword: (process.env.DB_PASSWORD || process.env.DB_PASS || "").trim(),
+    dbPassword: (process.env.DB_PASS || process.env.DB_PASSWORD || "").trim(),
     dbName: process.env.DB_NAME,
 
     dbPoolLimit: Number(
@@ -68,35 +69,11 @@ export const env = {
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
     cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
 
-    // Email (Brevo/SMTP)
+    // Email (Brevo)
     brevoApiKey:
         process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY || "",
-    emailFrom:
-        process.env.EMAIL_FROM ||
-        process.env.SMTP_FROM ||
-        process.env.MAIL_FROM ||
-        "",
+    emailFrom: process.env.EMAIL_FROM || "",
     emailFromName: process.env.EMAIL_FROM_NAME || "TastieKit",
-
-    // SMTP (alternative naming)
-    smtpHost: process.env.SMTP_HOST || process.env.MAIL_HOST || "",
-    smtpPort: Number(process.env.SMTP_PORT || process.env.MAIL_PORT || 587),
-    smtpUser:
-        process.env.EMAIL_USER ||
-        process.env.SMTP_USER ||
-        process.env.MAIL_USER ||
-        "",
-    smtpPass:
-        process.env.EMAIL_PASS ||
-        process.env.SMTP_PASS ||
-        process.env.MAIL_PASS ||
-        "",
-    smtpFrom:
-        process.env.SMTP_FROM ||
-        process.env.EMAIL_FROM ||
-        process.env.MAIL_FROM ||
-        "",
-    smtpSecure: parseBoolean(process.env.SMTP_SECURE, false),
 };
 
 // Final safety check for JWT Secret
