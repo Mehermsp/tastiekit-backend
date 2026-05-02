@@ -17,6 +17,7 @@ router.use("/auth", authRoutes);
 router.use("/admin", adminRoutes);
 router.use("/customer", customerRoutes);
 router.use("/restaurant", restaurantRoutes);
+router.use("/restaurants", restaurantsRoutes);
 router.use("/orders", orderRoutes);
 router.use("/cart", cartRoutes);
 router.use("/delivery", deliveryRoutes);
