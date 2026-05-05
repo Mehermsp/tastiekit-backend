@@ -1,5 +1,5 @@
 // Generic Redis cache middleware for Express
-const { getCache, setCache } = require("./redisCache");
+import { getCache, setCache } from "./redisCache.js";
 
 /**
  * cacheMiddleware - Express middleware for Redis caching
