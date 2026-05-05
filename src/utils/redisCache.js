@@ -1,7 +1,7 @@
 // Redis cache utility for get/set with error fallback
-const redis = require("./redisClient");
+import redis from "./redisClient.js";
 
-async function getCache(key) {
+export async function getCache(key) {
     try {
         const value = await redis.get(key);
         return value ? JSON.parse(value) : null;
@@ -11,12 +11,10 @@ async function getCache(key) {
     }
 }
 
-async function setCache(key, value, ttl = 300) {
+export async function setCache(key, value, ttl = 300) {
     try {
         await redis.set(key, JSON.stringify(value), "EX", ttl);
     } catch (err) {
         // Ignore Redis errors
     }
 }
-
-module.exports = { getCache, setCache };

@@ -283,7 +283,7 @@ CREATE TABLE delivery_assignments (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     order_id BIGINT NOT NULL,
     delivery_partner_id INT NOT NULL,
-    status ENUM('assigned', 'accepted', 'rejected', 'picked_up', 'delivered') NOT NULL DEFAULT 'assigned',
+    status ENUM('assigned', 'accepted', 'payment_confirmed', 'rejected', 'picked_up', 'delivered') NOT NULL DEFAULT 'assigned',
     rejection_reason TEXT NULL,
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     accepted_at TIMESTAMP NULL,
