@@ -24,4 +24,4 @@ function cacheMiddleware(keyBuilder, ttl = 300) {
     };
 }
 
-module.exports = cacheMiddleware;
+export default cacheMiddleware;
