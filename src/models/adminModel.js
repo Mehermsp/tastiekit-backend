@@ -48,7 +48,7 @@ export const approveRestaurantApplication = async ({
             `
             INSERT INTO restaurants (
                 owner_id,
-                application_id,
+                user_id,
                 name,
                 email,
                 phone,
@@ -62,18 +62,18 @@ export const approveRestaurantApplication = async ({
                 open_time,
                 close_time,
                 days_open,
-                fssai_number,
-                gst_number,
-                pan_number,
-                logo_url,
-                cover_image_url,
+                fssai,
+                gst,
+                pan,
+                logo,
+                cover_image,
                 is_active,
                 is_open
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 1, 1)
             `,
             [
                 application.owner_id,
-                application.id,
+                application.owner_id,
                 application.restaurant_name,
                 application.email,
                 application.phone,
@@ -87,19 +87,20 @@ export const approveRestaurantApplication = async ({
                 application.open_time,
                 application.close_time,
                 application.days_open,
-                application.fssai_number || null,
-                application.gst_number || null,
-                application.pan_number || null,
+                application.fssai_number || application.fssai || null,
+                application.gst_number || application.gst || null,
+                application.pan_number || application.pan || null,
             ]
         );
 
+        // Keep user as restaurant partner after approval.
         await connection.execute(
             `
             UPDATE users
-            SET restaurant_id = ?
+            SET role = 'restaurant_partner'
             WHERE id = ?
             `,
-            [restaurantResult.insertId, application.owner_id]
+            [application.owner_id]
         );
 
         await connection.execute(
@@ -121,13 +122,15 @@ export const approveRestaurantApplication = async ({
                 action,
                 entity_type,
                 entity_id,
-                description
+                details
             ) VALUES (?, 'approve_restaurant_application', 'restaurant_application', ?, ?)
             `,
             [
                 adminId,
                 applicationId,
-                `Approved restaurant application ${application.restaurant_name}`,
+                JSON.stringify({
+                    message: `Approved restaurant application ${application.restaurant_name}`,
+                }),
             ]
         );
     });

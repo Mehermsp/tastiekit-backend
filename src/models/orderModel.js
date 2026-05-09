@@ -31,14 +31,14 @@ const orderSelect = `
 
 const statusTimestampFragments = {
     placed: "",
-    confirmed: "confirmed_at = CURRENT_TIMESTAMP",
-    preparing: "preparing_at = CURRENT_TIMESTAMP",
-    prepared: "prepared_at = CURRENT_TIMESTAMP",
-    ready: "ready_at = CURRENT_TIMESTAMP",
+    confirmed: "",
+    preparing: "",
+    prepared: "",
+    ready: "",
     picked_up: "",
     on_the_way: "",
     delivered: "delivered_at = CURRENT_TIMESTAMP", // keep this (orders table has it)
-    cancelled: "cancelled_at = CURRENT_TIMESTAMP",
+    cancelled: "",
 };
 
 const summarizeCart = (cartItems) => {
@@ -121,36 +121,17 @@ const enrichOrderItemsWithImages = async (items) => {
     const placeholders = uniqueMenuIds.map(() => "?").join(", ");
     const imageMap = new Map();
 
-    try {
-        const rows = await query(
-            `
-            SELECT id, image_url
-            FROM menu_items
-            WHERE id IN (${placeholders})
-            `,
-            uniqueMenuIds
-        );
-        rows.forEach((row) => {
-            imageMap.set(Number(row.id), row.image_url || null);
-        });
-    } catch {
-        try {
-            // Compatibility with schemas where menu image column is `image`.
-            const rows = await query(
-                `
-                SELECT id, image
-                FROM menu_items
-                WHERE id IN (${placeholders})
-                `,
-                uniqueMenuIds
-            );
-            rows.forEach((row) => {
-                imageMap.set(Number(row.id), row.image || null);
-            });
-        } catch {
-            return items;
-        }
-    }
+    const rows = await query(
+        `
+        SELECT id, image AS image_url
+        FROM menu_items
+        WHERE id IN (${placeholders})
+        `,
+        uniqueMenuIds
+    );
+    rows.forEach((row) => {
+        imageMap.set(Number(row.id), row.image_url || null);
+    });
 
     return items.map((item) => {
         const menuId = Number(item.menu_item_id || item.menu_id || 0);

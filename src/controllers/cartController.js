@@ -99,12 +99,44 @@ export const updateCartItem = asyncHandler(async (req, res) => {
     }
 
     if (!existing) {
-        // Helps client debug (usually wrong/stale cartId or different user)
-        console.warn("CART_ITEM_NOT_FOUND", {
-            userId: req.user.id,
-            cartItemId,
-        });
-        throw new AppError(404, "Cart item not found");
+        // Recovery path for stale IDs:
+        // treat path param as menu_items.id and upsert cart row.
+        const menuItem = await findMenuItemForCart(cartItemId);
+        if (menuItem && menuItem.is_available && menuItem.is_active) {
+            const existingCartRestaurant = await getCartRestaurant(req.user.id);
+            if (
+                !existingCartRestaurant ||
+                Number(existingCartRestaurant.restaurant_id) ===
+                    Number(menuItem.restaurant_id)
+            ) {
+                await upsertCartItem({
+                    userId: req.user.id,
+                    restaurantId: menuItem.restaurant_id,
+                    menuItemId: cartItemId,
+                    quantity: Math.max(1, safeQuantity),
+                    unitPrice: Number(menuItem.price),
+                    totalPrice: Number(
+                        (Number(menuItem.price) * Math.max(1, safeQuantity)).toFixed(2)
+                    ),
+                });
+                const recoveredItems = await getCartForUser(req.user.id);
+                sendSuccess(
+                    res,
+                    buildCartResponse(recoveredItems),
+                    "Cart item updated successfully"
+                );
+                return;
+            }
+        }
+
+        // Idempotent behavior for stale clients: return latest cart instead of 404.
+        const latestItems = await getCartForUser(req.user.id);
+        sendSuccess(
+            res,
+            buildCartResponse(latestItems),
+            "Cart item not found; returning latest cart"
+        );
+        return;
     }
 
     if (safeQuantity <= 0) {
@@ -145,10 +177,9 @@ export const deleteCartItem = asyncHandler(async (req, res) => {
         await removeCartItem(req.user.id, byCartId.id);
     } else {
         const byMenuId = await getCartItemByMenuId(req.user.id, cartItemId);
-        if (!byMenuId) {
-            throw new AppError(404, "Cart item not found");
+        if (byMenuId) {
+            await removeCartItemByMenuId(req.user.id, byMenuId.menu_item_id);
         }
-        await removeCartItemByMenuId(req.user.id, byMenuId.menu_item_id);
     }
 
     const items = await getCartForUser(req.user.id);
