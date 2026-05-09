@@ -43,6 +43,23 @@ export const getCartItemById = async (userId, cartItemId) =>
         [cartItemId, userId]
     );
 
+export const getCartItemByMenuId = async (userId, menuItemId) =>
+    getOne(
+        `
+        SELECT
+            c.id,
+            c.qty AS quantity,
+            c.price AS unit_price,
+            c.menu_id AS menu_item_id,
+            mi.restaurant_id
+        FROM carts c
+        INNER JOIN menu_items mi ON mi.id = c.menu_id
+        WHERE c.menu_id = ? AND c.user_id = ?
+        LIMIT 1
+        `,
+        [menuItemId, userId]
+    );
+
 export const findMenuItemForCart = async (menuItemId) =>
     getOne(
         `
@@ -118,6 +135,12 @@ export const upsertCartItem = async ({
 export const removeCartItem = async (userId, cartItemId) =>
     query(`DELETE FROM carts WHERE id = ? AND user_id = ?`, [
         cartItemId,
+        userId,
+    ]);
+
+export const removeCartItemByMenuId = async (userId, menuItemId) =>
+    query(`DELETE FROM carts WHERE menu_id = ? AND user_id = ?`, [
+        menuItemId,
         userId,
     ]);
 
