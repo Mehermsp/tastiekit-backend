@@ -37,14 +37,8 @@ const issueTokens = async (user) => {
 };
 
 export const register = asyncHandler(async (req, res) => {
-    const {
-        role,
-        name,
-        email,
-        phone,
-        password,
-        adminBootstrapSecret,
-    } = req.body;
+    const { role, name, email, phone, password, adminBootstrapSecret } =
+        req.body;
 
     if (!role || !name || !email || !phone || !password) {
         throw new AppError(
@@ -114,23 +108,39 @@ export const login = asyncHandler(async (req, res) => {
         throw new AppError(400, "identifier (or email/phone) is required");
     }
 
-    const user = await findUserForAuth(loginIdentifier);
+    const normalizedIdentifier = String(loginIdentifier).trim();
+    const user = await findUserForAuth(normalizedIdentifier);
     if (!user) {
         throw new AppError(404, "User not found");
     }
 
+    const looksLikeBcryptHash = user?.password
+        ? /^\$2[aby]\$\d{2}\$/.test(user.password)
+        : false;
+
     if (user.password) {
-        const validPassword = await comparePassword(
-            password,
-            user.password
-        );
+        const validPassword = await comparePassword(password, user.password);
         if (!validPassword) {
+            // No password leakage; only safe diagnostics
+            console.warn("LOGIN_FAILED", {
+                identifier: normalizedIdentifier,
+                userId: user.id,
+                userRole: user.role,
+                hasPasswordHash: Boolean(user.password),
+                looksLikeBcryptHash,
+            });
             throw new AppError(401, "Invalid credentials");
         }
+    } else {
+        console.warn("LOGIN_FAILED_NO_PASSWORD_HASH", {
+            identifier: normalizedIdentifier,
+            userId: user.id,
+            userRole: user.role,
+        });
+        throw new AppError(401, "Invalid credentials");
     }
 
     const session = await issueTokens(user);
-
     sendSuccess(res, session, "Login successful");
 });
 
@@ -161,7 +171,9 @@ export const verifyOtp = asyncHandler(async (req, res) => {
 
     if (type === "password_reset") {
         const resetToken = crypto.randomBytes(24).toString("hex");
-        const resetExpires = new Date(Date.now() + env.otpTtlMinutes * 60 * 1000);
+        const resetExpires = new Date(
+            Date.now() + env.otpTtlMinutes * 60 * 1000
+        );
 
         const user = await getUserById(otpRow.user_id);
         if (!user) {
@@ -275,7 +287,10 @@ export const requestPasswordReset = asyncHandler(async (req, res) => {
 export const resetPassword = asyncHandler(async (req, res) => {
     const { email, resetToken, newPassword } = req.body;
     if (!email || !resetToken || !newPassword) {
-        throw new AppError(400, "email, resetToken and newPassword are required");
+        throw new AppError(
+            400,
+            "email, resetToken and newPassword are required"
+        );
     }
     if (String(newPassword).length < 6) {
         throw new AppError(400, "Password must be at least 6 characters");
