@@ -5,8 +5,10 @@ import {
     findMenuItemForCart,
     getCartForUser,
     getCartItemById,
+    getCartItemByMenuId,
     getCartRestaurant,
     removeCartItem,
+    removeCartItemByMenuId,
     upsertCartItem,
 } from "../models/cartModel.js";
 
@@ -84,7 +86,18 @@ export const updateCartItem = asyncHandler(async (req, res) => {
         throw new AppError(400, "cartItemId is invalid");
     }
 
-    const existing = await getCartItemById(req.user.id, cartItemId);
+    let existing = await getCartItemById(req.user.id, cartItemId);
+    let lookupMode = "cart_id";
+
+    // Backward compatibility:
+    // Some clients send menu_id in :cartItemId path param.
+    if (!existing) {
+        existing = await getCartItemByMenuId(req.user.id, cartItemId);
+        if (existing) {
+            lookupMode = "menu_id";
+        }
+    }
+
     if (!existing) {
         // Helps client debug (usually wrong/stale cartId or different user)
         console.warn("CART_ITEM_NOT_FOUND", {
@@ -95,7 +108,11 @@ export const updateCartItem = asyncHandler(async (req, res) => {
     }
 
     if (safeQuantity <= 0) {
-        await removeCartItem(req.user.id, req.params.cartItemId);
+        if (lookupMode === "menu_id") {
+            await removeCartItemByMenuId(req.user.id, existing.menu_item_id);
+        } else {
+            await removeCartItem(req.user.id, existing.id);
+        }
     } else {
         await upsertCartItem({
             userId: req.user.id,
@@ -118,7 +135,22 @@ export const updateCartItem = asyncHandler(async (req, res) => {
 });
 
 export const deleteCartItem = asyncHandler(async (req, res) => {
-    await removeCartItem(req.user.id, req.params.cartItemId);
+    const cartItemId = Number(req.params.cartItemId);
+    if (!Number.isFinite(cartItemId) || cartItemId <= 0) {
+        throw new AppError(400, "cartItemId is invalid");
+    }
+
+    const byCartId = await getCartItemById(req.user.id, cartItemId);
+    if (byCartId) {
+        await removeCartItem(req.user.id, byCartId.id);
+    } else {
+        const byMenuId = await getCartItemByMenuId(req.user.id, cartItemId);
+        if (!byMenuId) {
+            throw new AppError(404, "Cart item not found");
+        }
+        await removeCartItemByMenuId(req.user.id, byMenuId.menu_item_id);
+    }
+
     const items = await getCartForUser(req.user.id);
     sendSuccess(res, buildCartResponse(items), "Cart item removed");
 });
