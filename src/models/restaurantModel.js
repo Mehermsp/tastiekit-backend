@@ -156,6 +156,7 @@ export const createRestaurantApplication = async (payload) => {
         `
         INSERT INTO restaurant_applications (
             owner_id,
+            owner_name,
             restaurant_name,
             email,
             phone,
@@ -168,13 +169,14 @@ export const createRestaurantApplication = async (payload) => {
             open_time,
             close_time,
             days_open,
-            fssai_number,
-            gst_number,
-            pan_number
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            fssai,
+            gst,
+            pan
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
             payload.ownerId,
+            payload.ownerName || payload.owner_name || null,
             payload.restaurantName || payload.restaurant_name,
             payload.email,
             payload.phone,
@@ -271,6 +273,27 @@ export const updateRestaurantProfileByOwnerId = async (
 };
 
 export const createMenuItem = async (restaurantId, payload) => {
+    const mealTypeRaw = String(
+        payload.mealType || payload.meal_type || "Lunch"
+    ).toLowerCase();
+    const mealType =
+        mealTypeRaw === "breakfast"
+            ? "Breakfast"
+            : mealTypeRaw === "dinner"
+            ? "Dinner"
+            : "Lunch";
+
+    const foodTypeRaw = String(
+        payload.foodType || payload.food_type || "Veg"
+    ).toLowerCase();
+    const foodType =
+        foodTypeRaw === "non-veg" ||
+        foodTypeRaw === "non_veg" ||
+        foodTypeRaw === "nonveg" ||
+        foodTypeRaw === "non veg"
+            ? "Non-Veg"
+            : "Veg";
+
     const result = await query(
         `
         INSERT INTO menu_items (
@@ -278,13 +301,13 @@ export const createMenuItem = async (restaurantId, payload) => {
             name,
             description,
             price,
-            discount_percent,
+            discount,
             category,
             cuisine_type,
             meal_type,
             food_type,
             preparation_time_mins,
-            image_url,
+            image,
             is_available
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
@@ -299,8 +322,8 @@ export const createMenuItem = async (restaurantId, payload) => {
                 0,
             payload.category || null,
             payload.cuisineType || payload.cuisine_type || null,
-            payload.mealType || payload.meal_type || "lunch",
-            payload.foodType || payload.food_type || "vegetarian",
+            mealType,
+            foodType,
             payload.preparationTimeMins || payload.preparation_time_mins || 20,
             payload.imageUrl || payload.image || null,
             payload.isAvailable === false || Number(payload.is_available) === 0
@@ -326,7 +349,7 @@ export const updateMenuItem = async (restaurantId, itemId, payload) =>
             meal_type = ?,
             food_type = ?,
             preparation_time_mins = ?,
-            image_url = ?,
+            image = ?,
             is_available = ?
         WHERE id = ? AND restaurant_id = ?
         `,
@@ -340,8 +363,27 @@ export const updateMenuItem = async (restaurantId, itemId, payload) =>
                 0,
             payload.category || null,
             payload.cuisineType || payload.cuisine_type || null,
-            payload.mealType || payload.meal_type || "lunch",
-            payload.foodType || payload.food_type || "vegetarian",
+            (() => {
+                const mealTypeRaw = String(
+                    payload.mealType || payload.meal_type || "Lunch"
+                ).toLowerCase();
+                return mealTypeRaw === "breakfast"
+                    ? "Breakfast"
+                    : mealTypeRaw === "dinner"
+                    ? "Dinner"
+                    : "Lunch";
+            })(),
+            (() => {
+                const foodTypeRaw = String(
+                    payload.foodType || payload.food_type || "Veg"
+                ).toLowerCase();
+                return foodTypeRaw === "non-veg" ||
+                    foodTypeRaw === "non_veg" ||
+                    foodTypeRaw === "nonveg" ||
+                    foodTypeRaw === "non veg"
+                    ? "Non-Veg"
+                    : "Veg";
+            })(),
             payload.preparationTimeMins || payload.preparation_time_mins || 20,
             payload.imageUrl || payload.image || null,
             payload.isAvailable === false || Number(payload.is_available) === 0
@@ -356,7 +398,7 @@ export const deleteMenuItem = async (restaurantId, itemId) =>
     query(
         `
         UPDATE menu_items
-        SET is_available = 0, is_deleted = 1
+        SET is_available = 0
         WHERE id = ? AND restaurant_id = ?
         `,
         [itemId, restaurantId]
