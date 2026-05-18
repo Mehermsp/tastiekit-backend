@@ -5,23 +5,6 @@ import { logger } from "../utils/logger.js";
 let pool;
 
 export const initializeDatabase = async () => {
-    // Debug logging - remove after fixing
-    console.log("=== Database Env Variables ===");
-    console.log("DB_HOST:", env.dbHost ? "Loaded" : "MISSING");
-    console.log("DB_USER:", env.dbUser ? "Loaded" : "MISSING");
-    console.log("DB_NAME:", env.dbName ? "Loaded" : "MISSING");
-    console.log(
-        "DB_PASS:",
-        env.dbPassword ? "****** (present)" : "MISSING or EMPTY"
-    );
-    console.log("DB_SSL:", env.dbSsl);
-
-    if (!env.dbPassword) {
-        throw new Error(
-            "Database password is missing! Check environment variables on Render."
-        );
-    }
-
     pool = mysql.createPool({
         host: env.dbHost,
         port: env.dbPort,
@@ -29,35 +12,49 @@ export const initializeDatabase = async () => {
         password: env.dbPassword,
         database: env.dbName,
         waitForConnections: true,
-        connectionLimit: env.dbPoolLimit || 10,
-        connectTimeout: env.dbConnectTimeout || 10000,
+        connectionLimit: env.dbPoolLimit || 20, // Increased for production
+        queueLimit: 0,
+        connectTimeout: env.dbConnectTimeout || 15000,
+        acquireTimeout: 15000,
         decimalNumbers: true,
         ssl: env.dbSsl
-            ? {
-                  rejectUnauthorized: env.dbSslRejectUnauthorized !== false,
-              }
+            ? { rejectUnauthorized: env.dbSslRejectUnauthorized !== false }
             : undefined,
+        timezone: "Z", // Important for consistent timestamps
     });
 
-    const connection = await pool.getConnection();
-    await connection.ping();
-    connection.release();
-
-    logger.info("MySQL connection pool ready");
-    return pool;
-};
-
-export const getPool = () => {
-    if (!pool) {
-        throw new Error("Database not initialized");
+    try {
+        const connection = await pool.getConnection();
+        await connection.ping();
+        connection.release();
+        logger.info("✅ MySQL connection pool initialized successfully");
+    } catch (error) {
+        logger.error("❌ Database connection failed", { error: error.message });
+        throw error;
     }
 
     return pool;
 };
 
+export const getPool = () => {
+    if (!pool)
+        throw new Error(
+            "Database pool not initialized. Call initializeDatabase() first."
+        );
+    return pool;
+};
+
 export const query = async (sql, params = []) => {
-    const [rows] = await getPool().execute(sql, params);
-    return rows;
+    try {
+        const [rows] = await getPool().execute(sql, params);
+        return rows;
+    } catch (error) {
+        logger.error("Database query error", {
+            sql: sql.substring(0, 200),
+            error: error.message,
+        });
+        throw error;
+    }
 };
 
 export const getOne = async (sql, params = []) => {
@@ -67,7 +64,6 @@ export const getOne = async (sql, params = []) => {
 
 export const withTransaction = async (handler) => {
     const connection = await getPool().getConnection();
-
     try {
         await connection.beginTransaction();
         const result = await handler(connection);
@@ -75,6 +71,7 @@ export const withTransaction = async (handler) => {
         return result;
     } catch (error) {
         await connection.rollback();
+        logger.error("Transaction rolled back", { error: error.message });
         throw error;
     } finally {
         connection.release();
