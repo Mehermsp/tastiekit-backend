@@ -21,6 +21,8 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { signAccessToken } from "../utils/jwt.js";
 import { buildOtpExpiry, exposeDevOtp, generateOtp } from "../utils/otp.js";
 import { AppError, sendSuccess } from "../utils/http.js";
+import { logger } from "../utils/logger.js";
+import { sanitizeUser } from "../utils/sanitizeUser.js";
 
 const issueTokens = async (user) => {
     const payload = {
@@ -32,7 +34,7 @@ const issueTokens = async (user) => {
 
     return {
         accessToken,
-        user,
+        user: sanitizeUser(user),
     };
 };
 
@@ -88,7 +90,7 @@ export const register = asyncHandler(async (req, res) => {
     sendSuccess(
         res,
         {
-            user,
+            user: sanitizeUser(user),
             verification: {
                 phone,
                 otpExpiresInMinutes: env.otpTtlMinutes,
@@ -122,7 +124,7 @@ export const login = asyncHandler(async (req, res) => {
         const validPassword = await comparePassword(password, user.password);
         if (!validPassword) {
             // No password leakage; only safe diagnostics
-            console.warn("LOGIN_FAILED", {
+            logger.warn("LOGIN_FAILED", {
                 identifier: normalizedIdentifier,
                 userId: user.id,
                 userRole: user.role,
@@ -132,7 +134,7 @@ export const login = asyncHandler(async (req, res) => {
             throw new AppError(401, "Invalid credentials");
         }
     } else {
-        console.warn("LOGIN_FAILED_NO_PASSWORD_HASH", {
+        logger.warn("LOGIN_FAILED_NO_PASSWORD_HASH", {
             identifier: normalizedIdentifier,
             userId: user.id,
             userRole: user.role,
@@ -213,7 +215,7 @@ export const getMe = asyncHandler(async (req, res) => {
     if (!user) {
         throw new AppError(404, "User not found");
     }
-    sendSuccess(res, user, "User profile fetched successfully");
+    sendSuccess(res, sanitizeUser(user), "User profile fetched successfully");
 });
 
 export const requestOtp = asyncHandler(async (req, res) => {
@@ -310,5 +312,5 @@ export const resetPassword = asyncHandler(async (req, res) => {
 export const updateMe = asyncHandler(async (req, res) => {
     await updateUserProfile(req.user.id, req.body || {});
     const user = await getUserById(req.user.id);
-    sendSuccess(res, user, "User profile updated successfully");
+    sendSuccess(res, sanitizeUser(user), "User profile updated successfully");
 });

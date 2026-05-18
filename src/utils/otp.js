@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
+import crypto from "crypto";
 
-export const generateOtp = () =>
-    String(Math.floor(100000 + Math.random() * 900000));
+export const generateOtp = () => crypto.randomInt(100000, 999999).toString();
 
 export const buildOtpExpiry = () =>
     new Date(Date.now() + env.otpTtlMinutes * 60 * 1000);
