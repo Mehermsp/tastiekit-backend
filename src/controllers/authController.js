@@ -8,14 +8,13 @@ import * as otpService from "../services/auth/otpService.js";
 
 import * as passwordService from "../services/auth/passwordService.js";
 
-
 export const register = asyncHandler(async (req, res) => {
     const user = await authService.register(req.body);
 
     const otpData = await otpService.sendOtp({
         identifier: user.email,
 
-        type: "register",
+        type: "registration",
     });
 
     sendSuccess(
