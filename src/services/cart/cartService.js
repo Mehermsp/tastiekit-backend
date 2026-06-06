@@ -13,21 +13,31 @@ export const buildCartResponse = (items = []) => {
         0
     );
 
-    const deliveryFee = subtotal >= 400 || subtotal === 0 ? 0 : 35;
+    const discountAmount = items.reduce((sum, item) => {
+        const itemSubtotal =
+            Number(item.unit_price || 0) * Number(item.quantity || 0);
+
+        const discountPercent = Number(item.discount_percent || 0);
+
+        return sum + (itemSubtotal * discountPercent) / 100;
+    }, 0);
+
+    const deliveryFee = subtotal >= 400 || subtotal === 0 ? 0 : 40;
 
     const taxAmount = Number((subtotal * 0.05).toFixed(2));
 
+    const total = Number(
+        (subtotal - discountAmount + deliveryFee + taxAmount).toFixed(2)
+    );
+
     return {
         items,
-
         summary: {
             subtotal,
-
+            discountAmount: Number(discountAmount.toFixed(2)),
             deliveryFee,
-
             taxAmount,
-
-            total: Number((subtotal + deliveryFee + taxAmount).toFixed(2)),
+            total,
         },
     };
 };
