@@ -20,7 +20,6 @@ import { signAccessToken } from "../../utils/jwt.js";
 
 import { logger } from "../../utils/logger.js";
 
-import { sanitizeUser } from "../../utils/sanitizeUser.js";
 
 export const issueTokens = async (user) => {
     const payload = {
