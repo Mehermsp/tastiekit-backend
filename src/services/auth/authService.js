@@ -20,6 +20,8 @@ import { signAccessToken } from "../../utils/jwt.js";
 
 import { logger } from "../../utils/logger.js";
 
+import { sanitizeUser } from "../../utils/sanitizeUser.js";
+
 export const issueTokens = async (user) => {
     const payload = {
         sub: user.id,
@@ -45,10 +47,7 @@ export const register = async ({
     adminBootstrapSecret,
 }) => {
     if (!role || !name || !email || !password) {
-        throw new AppError(
-            400,
-            "role, name, email and password are required"
-        );
+        throw new AppError(400, "role, name, email and password are required");
     }
 
     const normalizedPhone = phone || (role === ROLES.CUSTOMER ? email : null);
@@ -90,7 +89,7 @@ export const register = async ({
 
     const user = await getUserById(userId);
 
-    return user;
+    return sanitizeUser(user);
 };
 
 export const login = async ({ identifier, email, phone, password }) => {
@@ -121,6 +120,10 @@ export const login = async ({ identifier, email, phone, password }) => {
         });
 
         throw new AppError(401, "Invalid credentials");
+    }
+
+    if (!user.is_email_verified) {
+        throw new AppError(403, "Please verify your email before logging in");
     }
 
     return await issueTokens(user);

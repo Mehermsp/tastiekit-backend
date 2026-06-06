@@ -113,14 +113,14 @@ export const upsertCartItem = async ({
     );
 
     if (existing) {
-        return query(
-            `
-            UPDATE carts
-            SET qty = ?, price = ?
-            WHERE id = ? AND user_id = ?
-            `,
-            [quantity, unitPrice, existing.id, userId]
-        );
+    return query(
+        `
+        UPDATE carts
+        SET qty = qty + ?, price = ?
+        WHERE id = ? AND user_id = ?
+        `,
+        [quantity, unitPrice, existing.id, userId]
+    );
     }
 
     // FIXED: Include 'name' when inserting new cart item
