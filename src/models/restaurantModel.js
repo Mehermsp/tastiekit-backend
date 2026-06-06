@@ -116,13 +116,81 @@ export const getRestaurantById = async (restaurantId) =>
 
 export const getRestaurantMenu = async (
     restaurantId,
-    { includeUnavailable = true, category, search } = {}
+    { includeUnavailable = true, category, search, limit, offset } = {}
 ) => {
     const { whereClause, params } = buildMenuFilters({
         includeUnavailable,
         category,
         search,
     });
+
+    const baseQuery = `
+        SELECT
+            mi.id,
+            mi.restaurant_id,
+            mi.name,
+            mi.description,
+            mi.price,
+            mi.discount,
+            mi.category,
+            mi.cuisine_type,
+            mi.meal_type,
+            mi.food_type,
+            mi.preparation_time_mins,
+            mi.is_available,
+            mi.image AS image_url,
+            mi.rating,
+            mi.popularity
+        FROM menu_items mi
+        WHERE ${whereClause}
+        ORDER BY
+            CASE WHEN mi.category IS NULL OR mi.category = '' THEN 1 ELSE 0 END,
+            mi.category ASC,
+            mi.popularity DESC,
+            mi.name ASC
+        `;
+
+    const queryParams = [restaurantId, ...params];
+
+    if (limit !== undefined && offset !== undefined) {
+        const items = await query(`${baseQuery} LIMIT ? OFFSET ?`, [
+            ...queryParams,
+            String(limit),
+            String(offset),
+        ]);
+
+        const [{ total }] = await query(
+            `SELECT COUNT(*) AS total FROM menu_items mi WHERE ${whereClause}`,
+            queryParams
+        );
+
+        return { items, total: Number(total) };
+    }
+
+    return query(baseQuery, queryParams);
+};
+
+export const getHomeFeedRestaurants = async ({ limit = 8 } = {}) => {
+    const { items } = await listApprovedRestaurants({
+        limit,
+        offset: 0,
+    });
+
+    return items;
+};
+
+export const getHomeFeedMenuItems = async ({
+    limit = 10,
+    discountOnly = false,
+} = {}) => {
+    const filters = ["r.is_active = 1", "COALESCE(mi.is_available, 1) = 1"];
+    if (discountOnly) {
+        filters.push("COALESCE(mi.discount, 0) > 0");
+    }
+
+    const orderClause = discountOnly
+        ? "mi.discount DESC, mi.popularity DESC, mi.name ASC"
+        : "mi.popularity DESC, mi.discount DESC, mi.name ASC";
 
     return query(
         `
@@ -139,18 +207,23 @@ export const getRestaurantMenu = async (
             mi.food_type,
             mi.preparation_time_mins,
             mi.is_available,
-            mi.image AS image_url,          
+            mi.image AS image_url,
             mi.rating,
-            mi.popularity
+            mi.popularity,
+            r.name AS restaurant_name,
+            r.area,
+            r.city,
+            r.is_open,
+            COALESCE(r.delivery_enabled, 1) AS delivery_enabled,
+            COALESCE(r.is_busy, 0) AS is_busy,
+            COALESCE(r.peak_hour_available, 1) AS peak_hour_available
         FROM menu_items mi
-        WHERE ${whereClause}
-        ORDER BY
-            CASE WHEN mi.category IS NULL OR mi.category = '' THEN 1 ELSE 0 END,
-            mi.category ASC,
-            mi.popularity DESC,
-            mi.name ASC
+        INNER JOIN restaurants r ON r.id = mi.restaurant_id
+        WHERE ${filters.join(" AND ")}
+        ORDER BY ${orderClause}
+        LIMIT ?
         `,
-        [restaurantId, ...params]
+        [String(limit)]
     );
 };
 
