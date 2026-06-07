@@ -1,28 +1,34 @@
 import rateLimit from "express-rate-limit";
+import { ipKeyGenerator } from "express-rate-limit";   // ← Import this
 
 export const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,     // 15 minutes
-    max: 10,                       // allow 10 attempts
+    max: 10,
     message: {
         success: false,
         message: "Too many login attempts. Please try again later.",
     },
-    standardHeaders: true,         // Return rate limit info in headers
+    standardHeaders: true,
     legacyHeaders: false,
 
-    // Important improvements:
-    skipSuccessfulRequests: true,  // Only count failed login attempts
+    skipSuccessfulRequests: true,   // Only count failed attempts
+
+    // Fixed keyGenerator with proper IPv6 support
     keyGenerator: (req) => {
-        // Better key: combine IP + email/username (prevents locking entire networks)
-        const ip = req.ip || req.connection.remoteAddress;
-        const email = req.body?.email || req.body?.username || '';
-        return `${ip}:${email}`;
+        const ip = req.ip || req.connection?.remoteAddress || "unknown";
+        
+        // Use the official helper for IPv6 subnet masking
+        const processedIp = ipKeyGenerator(ip);
+        
+        const identifier = req.body?.email || req.body?.username || req.body?.phone || "anonymous";
+        
+        return `${processedIp}:${identifier}`;
     },
-    
+
     handler: (req, res) => {
         res.status(429).json({
             success: false,
-            message: "Too many login attempts from this device. Please wait a few minutes before trying again.",
+            message: "Too many login attempts. Please wait before trying again.",
         });
     }
 });
