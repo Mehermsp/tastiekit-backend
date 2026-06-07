@@ -10,6 +10,7 @@ import {
     removeCartItem,
     removeCartItemByMenuId,
     upsertCartItem,
+    updateCartItemQuantity,
 } from "../models/cartModel.js";
 import {
     buildCartResponse,
@@ -122,16 +123,7 @@ export const updateCartItem = asyncHandler(async (req, res) => {
             await removeCartItem(req.user.id, existing.id);
         }
     } else {
-        await upsertCartItem({
-            userId: req.user.id,
-            restaurantId: existing.restaurant_id,
-            menuItemId: existing.menu_item_id,
-            quantity: safeQuantity,
-            unitPrice: Number(existing.unit_price),
-            totalPrice: Number(
-                (Number(existing.unit_price) * safeQuantity).toFixed(2)
-            ),
-        });
+        await updateCartItemQuantity(req.user.id, existing.id, safeQuantity);
     }
 
     const items = await getCartForUser(req.user.id);

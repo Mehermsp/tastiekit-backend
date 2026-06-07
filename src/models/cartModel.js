@@ -135,6 +135,20 @@ export const upsertCartItem = async ({
     );
 };
 
+export const updateCartItemQuantity = async (
+    userId,
+    cartItemId,
+    quantity
+) =>
+    query(
+        `
+        UPDATE carts
+        SET qty = ?
+        WHERE id = ? AND user_id = ?
+        `,
+        [quantity, cartItemId, userId]
+    );
+    
 export const removeCartItem = async (userId, cartItemId) =>
     query(`DELETE FROM carts WHERE id = ? AND user_id = ?`, [
         cartItemId,
