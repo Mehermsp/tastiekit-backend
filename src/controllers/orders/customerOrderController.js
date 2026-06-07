@@ -15,6 +15,7 @@ export const getMyOrders = asyncHandler(async (req, res) => {
     const orders = await customerOrderService.getMyOrders({
         customerId: req.user.id,
         status: req.query.status,
+        include: req.query.include,
     });
 
     sendSuccess(res, orders, "Orders fetched successfully");

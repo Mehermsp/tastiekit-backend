@@ -7,6 +7,7 @@ export const createReview = async ({
     orderId,
     customerId,
     restaurantId,
+    deliveryPartnerId,
     restaurantRating,
     restaurantComment,
     deliveryRating,
@@ -29,24 +30,46 @@ export const createReview = async ({
                 orderId,
                 customerId,
                 restaurantId,
-                restaurantRating,
+                restaurantRating ?? null,
                 restaurantComment || null,
-                deliveryRating || null,
+                deliveryRating ?? null,
                 deliveryComment || null,
             ]
         );
 
-        await connection.execute(
-            `
-            UPDATE restaurants r
-            JOIN (
-                SELECT restaurant_id, AVG(rating) AS avg_rating
-                FROM reviews
-                WHERE restaurant_id = ?
-            ) agg ON agg.restaurant_id = r.id
-            SET r.rating = ROUND(agg.avg_rating, 2)
-            WHERE r.id = ?
-            `,
-            [restaurantId, restaurantId]
-        );
+        if (restaurantRating != null) {
+            await connection.execute(
+                `
+                UPDATE restaurants r
+                JOIN (
+                    SELECT restaurant_id, AVG(rating) AS avg_rating
+                    FROM reviews
+                    WHERE restaurant_id = ?
+                      AND rating IS NOT NULL
+                ) agg ON agg.restaurant_id = r.id
+                SET r.rating = ROUND(agg.avg_rating, 2)
+                WHERE r.id = ?
+                `,
+                [restaurantId, restaurantId]
+            );
+        }
+
+        if (deliveryPartnerId && deliveryRating != null) {
+            await connection.execute(
+                `
+                UPDATE users u
+                JOIN (
+                    SELECT o.delivery_partner_id, AVG(rv.delivery_rating) AS avg_rating
+                    FROM reviews rv
+                    INNER JOIN orders o ON o.id = rv.order_id
+                    WHERE o.delivery_partner_id = ?
+                      AND rv.delivery_rating IS NOT NULL
+                ) agg ON agg.delivery_partner_id = u.id
+                SET u.rating = ROUND(agg.avg_rating, 2)
+                WHERE u.id = ?
+                  AND u.role = 'delivery_partner'
+                `,
+                [deliveryPartnerId, deliveryPartnerId]
+            );
+        }
     });

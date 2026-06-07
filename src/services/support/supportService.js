@@ -1,5 +1,9 @@
 import { getCartForUser, upsertCartItem } from "../../models/cartModel.js";
-import { getOrderById, getOrderItems, updateOrderStatus } from "../../models/orderModel.js";
+import {
+    getOrderById,
+    getOrderItems,
+    updateOrderStatus,
+} from "../../models/orderModel.js";
 import { createRefundTransaction } from "../finance/incomeManagementService.js";
 import {
     addSupportMessage,
@@ -65,7 +69,9 @@ const normalizeCategory = (value) => {
 };
 
 const normalizePriority = (value) => {
-    const priority = String(value || "normal").trim().toLowerCase();
+    const priority = String(value || "normal")
+        .trim()
+        .toLowerCase();
 
     return TICKET_PRIORITIES.has(priority) ? priority : "normal";
 };
@@ -212,6 +218,20 @@ export const requestCustomerRefund = async ({
         );
     }
 
+    const normalizedPaymentStatus = String(
+        order.payment_status || ""
+    ).toLowerCase();
+    if (
+        !["completed", "captured", "paid", "confirmed", "success"].includes(
+            normalizedPaymentStatus
+        )
+    ) {
+        throw new AppError(
+            400,
+            "Refunds are not eligible for this order based on payment status"
+        );
+    }
+
     const activeRefund = await getActiveRefundForOrder(order.id);
 
     if (activeRefund) {
@@ -252,7 +272,9 @@ export const requestCustomerRefund = async ({
     const refund = await getRefundRequestById(refundId);
     await notifyAdmins({
         title: "Refund requested",
-        message: `Refund requested for order ${order.order_number || order.id}.`,
+        message: `Refund requested for order ${
+            order.order_number || order.id
+        }.`,
         type: "refund_request",
         data: { refundId, orderId: order.id, amount: safeAmount },
     });
@@ -419,7 +441,11 @@ export const replyToAdminTicket = async ({
     emitRealtimeEvent({
         room: "admin:support",
         eventName: "support:message-created",
-        payload: { ticketId, senderRole: "admin", isInternal: Boolean(isInternal) },
+        payload: {
+            ticketId,
+            senderRole: "admin",
+            isInternal: Boolean(isInternal),
+        },
     });
 
     return updated;
@@ -463,7 +489,11 @@ export const updateAdminTicket = async ({
         title: "Support ticket updated",
         message: `Ticket #${ticketId} is now ${updated.status}.`,
         type: "support_ticket",
-        data: { ticketId, status: updated.status, orderId: ticket.order_id || null },
+        data: {
+            ticketId,
+            status: updated.status,
+            orderId: ticket.order_id || null,
+        },
     });
     emitRealtimeEvent({
         room: "admin:support",

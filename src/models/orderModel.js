@@ -52,6 +52,28 @@ const statusTimestampFragments = {
     cancelled: "",
 };
 
+export const PAYMENT_SUCCESS_STATUSES = new Set([
+    "completed",
+    "captured",
+    "paid",
+    "confirmed",
+    "success",
+]);
+
+export const isRefundEligibleForOrder = (order) => {
+    const normalizedStatus = String(order?.status || "")
+        .toLowerCase()
+        .trim();
+    const paymentStatus = String(order?.payment_status || "")
+        .toLowerCase()
+        .trim();
+
+    return (
+        ["delivered", "cancelled"].includes(normalizedStatus) &&
+        PAYMENT_SUCCESS_STATUSES.has(paymentStatus)
+    );
+};
+
 const summarizeCart = (cartItems) => {
     const subtotal = cartItems.reduce(
         (sum, item) =>
@@ -122,13 +144,13 @@ export const getCustomerCheckoutSummary = async (customerId) => {
 
     if (
         cartItems.some(
-                (item) =>
-                    !item.is_available ||
-                    !item.is_active ||
-                    !item.is_open ||
-                    !item.delivery_enabled ||
-                    item.is_busy ||
-                    !item.peak_hour_available
+            (item) =>
+                !item.is_available ||
+                !item.is_active ||
+                !item.is_open ||
+                !item.delivery_enabled ||
+                item.is_busy ||
+                !item.peak_hour_available
         )
     ) {
         throw new Error("One or more items are unavailable");
@@ -138,8 +160,14 @@ export const getCustomerCheckoutSummary = async (customerId) => {
 };
 
 // ====================== CUSTOMER ======================
-export const listCustomerOrders = async (customerId, status) => {
+export const listCustomerOrders = async (customerId, status, include = []) => {
     const persistedStatus = status ? normalizeOrderStatusInput(status) : null;
+    const includes = Array.isArray(include)
+        ? include
+        : String(include || "")
+              .split(",")
+              .map((value) => value.trim().toLowerCase())
+              .filter(Boolean);
 
     const orders = await query(
         `
@@ -150,17 +178,53 @@ export const listCustomerOrders = async (customerId, status) => {
             o.total,
             o.payment_method,
             o.payment_status,
+            COALESCE(o.subtotal, 0) AS subtotal,
+            COALESCE(o.delivery_fee, 0) AS delivery_fee,
+            COALESCE(o.tax_amount, 0) AS tax_amount,
+            o.door_no,
+            o.street,
+            o.area,
+            o.city,
+            o.state,
+            o.zip_code,
+            o.phone,
+            o.notes,
+            o.delivered_at,
+            CASE
+                WHEN o.status IN ('delivered', 'cancelled')
+                     AND LOWER(COALESCE(o.payment_status, '')) IN ('completed', 'captured', 'paid', 'confirmed', 'success')
+                THEN 1
+                ELSE 0
+            END AS refund_eligible,
             o.created_at,
             r.name AS restaurant_name,
-            r.cover_image AS restaurant_image
+            r.cover_image AS restaurant_image,
+            d.name AS delivery_partner_name,
+            d.phone AS delivery_partner_phone
         FROM orders o
         INNER JOIN restaurants r ON r.id = o.restaurant_id
+        LEFT JOIN users d ON d.id = o.delivery_partner_id
         WHERE o.user_id = ?
           AND (? IS NULL OR o.status = ?)
         ORDER BY o.created_at DESC
         `,
         [customerId, persistedStatus, persistedStatus]
     );
+
+    if (includes.includes("items") && orders.length) {
+        const orderIds = orders.map((order) => order.id);
+        const orderItems = await getOrderItemsForOrderIds(orderIds);
+        const itemsByOrderId = orderItems.reduce((acc, item) => {
+            const orderId = Number(item.order_id);
+            if (!acc[orderId]) acc[orderId] = [];
+            acc[orderId].push(item);
+            return acc;
+        }, {});
+
+        orders.forEach((order) => {
+            order.items = itemsByOrderId[Number(order.id)] || [];
+        });
+    }
 
     return withProductOrderStatusList(orders);
 };
@@ -363,6 +427,53 @@ export const getOrderItems = async (orderId) => {
             ORDER BY id ASC
             `,
             [orderId]
+        );
+    }
+
+    return enrichOrderItemsWithImages(rows);
+};
+
+export const getOrderItemsForOrderIds = async (orderIds) => {
+    if (!Array.isArray(orderIds) || !orderIds.length) return [];
+
+    const placeholders = orderIds.map(() => "?").join(", ");
+    let rows;
+
+    try {
+        rows = await query(
+            `
+            SELECT
+                id,
+                order_id,
+                menu_id AS menu_item_id,
+                name,
+                price,
+                qty AS quantity,
+                discount,
+                subtotal
+            FROM order_items
+            WHERE order_id IN (${placeholders})
+            ORDER BY order_id ASC, id ASC
+            `,
+            orderIds
+        );
+    } catch {
+        rows = await query(
+            `
+            SELECT
+                id,
+                order_id,
+                menu_item_id,
+                name,
+                price,
+                quantity,
+                discount_percent AS discount,
+                subtotal
+            FROM order_items
+            WHERE order_id IN (${placeholders})
+            ORDER BY order_id ASC, id ASC
+            `,
+            orderIds
         );
     }
 
@@ -664,7 +775,9 @@ export const updateOrderStatus = async ({
             return { changed: false, currentStatus: lockedCurrentStatus };
         }
 
-        if (!canTransitionOrderStatus(lockedCurrentStatus, normalizedNextStatus)) {
+        if (
+            !canTransitionOrderStatus(lockedCurrentStatus, normalizedNextStatus)
+        ) {
             throw new AppError(
                 400,
                 `Invalid order status transition from ${lockedCurrentStatus} to ${normalizedNextStatus}`

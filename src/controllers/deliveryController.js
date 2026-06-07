@@ -8,7 +8,7 @@ import {
     getAssignmentForOrderAndPartner,
     getDeliveryPartnerStats,
     getOrderById,
-    getOrderItems,
+    getOrderItemsForOrderIds,
     listDeliveryAssignments,
     markOrderRejectedForPartner,
     updateAssignmentStatus,
@@ -47,14 +47,26 @@ const isAcceptanceWindowOpen = (assignedAt) => {
     );
 };
 
+const attachItemsToAssignments = async (assignments) => {
+    const orderIds = assignments.map((assignment) => assignment.order_id);
+    const items = await getOrderItemsForOrderIds(orderIds);
+    const itemsByOrderId = items.reduce((map, item) => {
+        const key = String(item.order_id);
+        const orderItems = map.get(key) || [];
+        orderItems.push(item);
+        map.set(key, orderItems);
+        return map;
+    }, new Map());
+
+    return assignments.map((assignment) => ({
+        ...assignment,
+        items: itemsByOrderId.get(String(assignment.order_id)) || [],
+    }));
+};
+
 export const getDeliveryDashboard = asyncHandler(async (req, res) => {
     const assignments = await listDeliveryAssignments(req.user.id);
-    const assignmentsWithItems = await Promise.all(
-        assignments.map(async (assignment) => {
-            const items = await getOrderItems(assignment.order_id);
-            return { ...assignment, items };
-        })
-    );
+    const assignmentsWithItems = await attachItemsToAssignments(assignments);
     const stats = await getDeliveryPartnerStats(req.user.id);
 
     sendSuccess(
@@ -71,11 +83,11 @@ export const getDeliveryDashboard = asyncHandler(async (req, res) => {
 
 export const getDeliveryOrders = asyncHandler(async (req, res) => {
     const assignments = await listDeliveryAssignments(req.user.id);
+    const assignmentsWithItems = await attachItemsToAssignments(assignments);
     const ordersWithItems = await Promise.all(
-        assignments.map(async (assignment) => {
+        assignmentsWithItems.map(async (assignment) => {
             const order = await getOrderById(assignment.order_id);
-            const items = await getOrderItems(assignment.order_id);
-            return { ...assignment, ...order, items };
+            return { ...assignment, ...order };
         })
     );
     sendSuccess(res, ordersWithItems, "Delivery orders fetched successfully");

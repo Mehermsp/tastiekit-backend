@@ -8,6 +8,7 @@ import {
     getOrderStatusLogs,
     listCustomerOrders,
     cancelOrder as cancelOrderModel,
+    isRefundEligibleForOrder,
 } from "../../models/orderModel.js";
 
 import { getRestaurantByOwnerId } from "../../models/restaurantModel.js";
@@ -15,8 +16,8 @@ import { getRestaurantByOwnerId } from "../../models/restaurantModel.js";
 import { ROLES } from "../../constants/index.js";
 import { notifyOrderStakeholders } from "../notificationService.js";
 
-export const getMyOrders = async ({ customerId, status }) => {
-    return await listCustomerOrders(customerId, status);
+export const getMyOrders = async ({ customerId, status, include }) => {
+    return await listCustomerOrders(customerId, status, include);
 };
 
 export const getOrderDetails = async ({ orderId, user }) => {
@@ -69,6 +70,7 @@ export const getOrderDetails = async ({ orderId, user }) => {
         ...order,
         items,
         statusLogs: logs,
+        refund_eligible: isRefundEligibleForOrder(order),
     };
 };
 
